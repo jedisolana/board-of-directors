@@ -73,19 +73,24 @@ def _save(d: dict) -> None:
     os.replace(tmp, LEDGER)
 
 
-def record(model: str, ok: bool, day: str | None = None) -> None:
-    """One call made. Failures count too -- a rejected request still hit the platform."""
+def record(model: str, ok: bool, day: str | None = None, provider_side: bool = False) -> None:
+    """One call made. Failures count too -- unless the provider, not OpenRouter, refused it."""
     with _locked():
-        _record(model, ok, day)
+        _record(model, ok, day, provider_side)
 
 
-def _record(model: str, ok: bool, day: str | None = None) -> None:
+def _record(model: str, ok: bool, day: str | None = None, provider_side: bool = False) -> None:
     d = _load()
     day = day or _today()
-    rec = d["days"].setdefault(day, {"calls": 0, "failed": 0, "models": {}})
-    rec["calls"] += 1
-    if not ok:
-        rec["failed"] += 1
+    rec = d["days"].setdefault(day, {"calls": 0, "failed": 0, "provider_busy": 0, "models": {}})
+    # A provider at capacity refused before OpenRouter spent anything of yours. It is still
+    # worth showing -- it is why a member did not answer - but it must not move the meter.
+    if provider_side:
+        rec["provider_busy"] = rec.get("provider_busy", 0) + 1
+    else:
+        rec["calls"] += 1
+        if not ok:
+            rec["failed"] += 1
     rec["models"][model] = rec["models"].get(model, 0) + 1
     # keep a fortnight, no more -- this is a counter, not an archive
     for old in sorted(d["days"])[:-14]:
@@ -115,6 +120,7 @@ class Status:
     day: str
     calls: int
     failed: int
+    provider_busy: int
     per_model: dict
     allowance: int
     remaining: int
@@ -138,7 +144,7 @@ def status(tier_usd: float | None = None) -> Status:
     from .budget import Budget
     d = _load()
     day = _today()
-    rec = d["days"].get(day, {"calls": 0, "failed": 0, "models": {}})
+    rec = d["days"].get(day, {"calls": 0, "failed": 0, "provider_busy": 0, "models": {}})
     tier_usd = config.tier() if tier_usd is None else tier_usd
     allowance = Budget(tier_usd).per_day
 
@@ -153,7 +159,12 @@ def status(tier_usd: float | None = None) -> Status:
     else:
         remaining = max(0, allowance - rec["calls"])
 
+    # The ledger stays truthful. If the count runs past the allowance that is a FACT worth
+    # seeing - it means the allowance is not what we think, or something else is using the
+    # key - and clamping it here would hide the very thing that needs explaining. The display
+    # is where an over-count gets said in words.
     return Status(day=day, calls=rec["calls"], failed=rec["failed"],
+                  provider_busy=rec.get("provider_busy", 0),
                   per_model=rec.get("models", {}), allowance=allowance,
                   remaining=remaining, measured=measured, tier_usd=tier_usd,
                   resets_in=_resets_in())

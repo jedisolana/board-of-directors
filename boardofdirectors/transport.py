@@ -37,6 +37,20 @@ from . import config, usage
 API = "https://openrouter.ai/api/v1/chat/completions"
 
 
+def is_platform_limit(headers: dict, raw: str) -> bool:
+    """Is this OpenRouter saying "you are out of allowance", or a provider saying "I am busy"?
+
+    They are the same status code and they mean opposite things. OpenRouter's own limit is the
+    one that spends your fifty-a-day and it arrives with X-RateLimit-* headers attached; an
+    upstream provider at capacity carries none of them and usually says so in the message.
+    Treating a busy provider as spent quota is how a counter reaches 58/50 while every other
+    model on the board answers perfectly.
+    """
+    if any(h.lower().startswith("x-ratelimit") for h in headers):
+        return True
+    return "provider returned" not in (raw or "").lower()
+
+
 def _as_int(v) -> int | None:
     try:
         return int(v)
@@ -130,13 +144,17 @@ class OpenRouterTransport(Transport):
         self._sleep = sleep
         self.meter = meter
 
-    def _count(self, model: str, ok: bool) -> None:
-        """Every request that reached the platform, counted -- failures included, because a
-        rejected request still spent one of your allowance."""
+    def _count(self, model: str, ok: bool, provider_side: bool = False) -> None:
+        """One logical request, counted once.
+
+        A rejected request still spent one of your allowance -- unless the rejection came from
+        the upstream PROVIDER rather than from OpenRouter, in which case nothing of yours was
+        spent and counting it inflates the meter against a limit you never touched.
+        """
         if not self.meter:
             return
         with contextlib.suppress(Exception):
-            usage.record(model, ok)          # a broken counter must never break a session
+            usage.record(model, ok, provider_side=provider_side)
 
     def _headers(self) -> dict:
         h = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
@@ -166,7 +184,15 @@ class OpenRouterTransport(Transport):
         return min(2.0 ** attempt + random.uniform(0, 0.5), 30.0)
 
     def ask(self, model: dict, messages: list[dict], *, want_json: bool = False,
-            max_tokens: int | None = 1024, temperature: float | None = 0.7) -> Answer | Failure:
+            max_tokens: int | None = None, temperature: float | None = 0.7) -> Answer | Failure:
+        # An audit of a codebase stopped mid-sentence at "So" because every request was
+        # capped at 1024 output tokens - a number picked for a chat reply and then applied to
+        # a model asked to enumerate defects across seven files. A truncated audit is worse
+        # than none: it reads like a finished list, and the findings it never got to are
+        # indistinguishable from findings it did not have. Default to what the MODEL says it
+        # can write, and leave the cap to callers who genuinely want a short answer.
+        if max_tokens is None:
+            max_tokens = min(model.get("max_completion_tokens") or 8192, 32768)
         body = self._payload(model, messages, want_json, max_tokens, temperature)
         data = json.dumps(body).encode()
         last = "unknown error"
@@ -183,6 +209,8 @@ class OpenRouterTransport(Transport):
                 except (TypeError, ValueError):
                     retry_after = None
                 if e.code == 429:
+                    provider_side = not is_platform_limit(
+                        dict(e.headers.items() if e.headers else []), raw)
                     # The ONLY moment OpenRouter states the real numbers. Successful responses
                     # carry no X-RateLimit-* headers at all, so this is the one chance to stop
                     # estimating -- take it whether or not we go on to retry.
@@ -191,17 +219,17 @@ class OpenRouterTransport(Transport):
                     # end of an except block, so a helper that closes over `e` works only for
                     # as long as it is called inside the block - a trap that stays quiet until
                     # someone moves the call, and then breaks the one path that must not break.
-                    self._count(model["id"], False)
                     headers = dict(e.headers.items()) if e.headers else {}
                     usage.learn_from_429(_as_int(headers.get("X-RateLimit-Limit")),
                                          _as_int(headers.get("X-RateLimit-Remaining")),
                                          headers.get("X-RateLimit-Reset"))
                 if e.code == 429 and attempt < self.max_retries - 1:
+                    # A retry is not a new question. Counting each attempt turned one request
+                    # to a busy provider into four against a fifty-a-day allowance.
                     self._sleep(self._backoff(attempt, retry_after))
-                    last = "rate limited"
+                    last = ("the provider is busy" if provider_side else "rate limited")
                     continue
-                if e.code != 429:
-                    self._count(model["id"], False)
+                self._count(model["id"], False, provider_side=(e.code == 429 and provider_side))
                 if e.code == 403 and ("harness" in raw.lower() or "not available" in raw.lower()):
                     # The catalogue said free and usable; the API says otherwise. Remember it,
                     # or this model is picked again on every run.
@@ -240,4 +268,5 @@ class OpenRouterTransport(Transport):
             if not text:
                 return Failure(model["id"], "empty content")
             return Answer(model["id"], text, raw=payload)
+        self._count(model["id"], False, provider_side=True)
         return Failure(model["id"], last, status=429)

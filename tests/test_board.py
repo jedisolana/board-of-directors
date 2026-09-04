@@ -544,6 +544,142 @@ class TheRename(unittest.TestCase):
             shutil.rmtree(new, ignore_errors=True)
 
 
+class TwoKindsOf429(unittest.TestCase):
+    """The counter read 58/50 while every other model on the board answered perfectly.
+
+    Two causes, and they compound. Retries were counted as separate calls, so one question to
+    a busy model registered as four. And a 429 from the upstream PROVIDER - "Provider returned
+    error (429)", the model's own company at capacity - was counted as spent allowance, which
+    it is not. Checked against the account: OpenRouter reported usage_daily 0 and no 429 all
+    day had carried a rate-limit header, meaning the platform limit had never been touched.
+    """
+
+    def test_a_platform_limit_is_told_apart_from_a_busy_provider(self):
+        from boardofdirectors.transport import is_platform_limit
+        # OpenRouter's own limit arrives with the headers that state it
+        self.assertTrue(is_platform_limit({"X-RateLimit-Remaining": "0"}, "{}"))
+        # an upstream provider at capacity carries none of them and says so
+        self.assertFalse(is_platform_limit({}, '{"error":{"message":"Provider returned error"}}'))
+        # anything else unheadered is assumed to be ours, which is the safe direction
+        self.assertTrue(is_platform_limit({}, '{"error":{"message":"Rate limit exceeded"}}'))
+
+    def test_a_busy_provider_does_not_move_the_meter(self):
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            importlib.reload(usage)
+            usage.record("a/one", ok=True)
+            usage.record("b/one", ok=False, provider_side=True)
+            usage.record("b/one", ok=False, provider_side=True)
+            st = usage.status(0)
+            self.assertEqual(st.calls, 1, "a provider refusal is not spent allowance")
+            self.assertEqual(st.provider_busy, 2)
+            self.assertEqual(st.remaining, 49)
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+            importlib.reload(usage)
+
+    def test_the_ledger_is_never_clamped(self):
+        """An over-count is a FACT - the allowance is not what we think, or something else is
+        using the key. Clamping it in the data would hide the thing that needs explaining."""
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            importlib.reload(usage)
+            for _ in range(58):
+                usage.record("a/one", ok=True)
+            self.assertEqual(usage.status(0).calls, 58)
+            self.assertEqual(usage.status(0).remaining, 0)
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+            importlib.reload(usage)
+
+    def test_a_retry_is_not_a_second_question(self):
+        """One request to a busy provider used to register four times."""
+        import io
+        import urllib.error
+        import urllib.request
+        home = tempfile.mkdtemp()
+        old_home, old_open = os.environ.get("BOARD_HOME"), urllib.request.urlopen
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            importlib.reload(usage)
+            from boardofdirectors.transport import OpenRouterTransport
+
+            def busy(*a, **kw):
+                raise urllib.error.HTTPError(
+                    "u", 429, "Too Many Requests", {},
+                    io.BytesIO(b'{"error":{"message":"Provider returned error"}}'))
+
+            urllib.request.urlopen = busy
+            t = OpenRouterTransport("sk-or-v1-" + "a" * 64, max_retries=4, sleep=lambda s: None)
+            r = t.ask({"id": "b/one", "supported_parameters": []}, [{"role": "user", "content": "x"}])
+            self.assertFalse(r.ok)
+            st = usage.status(0)
+            self.assertEqual(st.calls, 0, "four attempts at one question is still one question")
+            self.assertEqual(st.provider_busy, 1)
+        finally:
+            urllib.request.urlopen = old_open
+            if old_home is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old_home
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+            importlib.reload(usage)
+
+
+class TheOutputCap(unittest.TestCase):
+    """An audit of seven files stopped mid-sentence, at the word "So".
+
+    Every request was capped at 1024 output tokens - a number chosen for a chat reply and then
+    applied to a model asked to enumerate defects across a codebase. A truncated audit is
+    worse than no audit: it reads like a finished list, so the findings it never reached are
+    indistinguishable from findings it did not have.
+    """
+
+    def test_the_default_follows_the_model_not_a_chat_sized_guess(self):
+        big = {"id": "a/big", "max_completion_tokens": 230400, "supported_parameters": ["max_tokens"]}
+        small = {"id": "a/small", "max_completion_tokens": 8192, "supported_parameters": ["max_tokens"]}
+        for m, expected in ((big, 32768), (small, 8192)):
+            sent = {}
+            t = OpenRouterTransport("sk-or-v1-" + "a" * 64, meter=False)
+            orig = OpenRouterTransport._payload
+
+            def spy(model, messages, want_json, max_tokens, temperature, _s=sent):
+                _s["max_tokens"] = max_tokens
+                return orig(model, messages, want_json, max_tokens, temperature)
+
+            OpenRouterTransport._payload = staticmethod(spy)
+            try:
+                t.ask(m, [{"role": "user", "content": "x"}])
+            except Exception:
+                pass
+            finally:
+                OpenRouterTransport._payload = staticmethod(orig)
+            self.assertEqual(sent.get("max_tokens"), expected, m["id"])
+
+    def test_a_caller_can_still_ask_for_a_short_answer(self):
+        m = {"id": "a/big", "max_completion_tokens": 230400, "supported_parameters": ["max_tokens"]}
+        body = OpenRouterTransport._payload(m, [], False, 256, 0.5)
+        self.assertEqual(body["max_tokens"], 256)
+
+
 class SavedSessions(unittest.TestCase):
     """A board turn costs 9-11 of a 50-a-day allowance. Losing it on reload is not acceptable."""
 
