@@ -139,9 +139,10 @@ def _board(payload: dict) -> dict:
     ordered = members + [m for m in models if m["id"] not in {x["id"] for x in members}]
     s = board.ask_in_context(question, prior=prior, transport=transport, models=ordered,
                              size=len(members), minimum=int(payload.get("minimum", 3)),
-                             peer_review=bool(payload.get("peer_review", True)))
+                             peer_review=bool(payload.get("peer_review", True)),
+                             kind=payload.get("kind", "decide"))
     return {
-        "mode": "board", "live": live,
+        "mode": "board", "live": live, "kind": s.kind,
         "members": [m["id"] for m in members],
         "chair": s.chair_model["id"],
         "answers": [{"label": next((k for k, v in s.labels.items() if v == a.model), "?"),
@@ -195,6 +196,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/scan":
                 sc = codebase.scan(payload["path"])
                 return self._json(sc.summary())
+            if self.path == "/api/guess":
+                return self._json({"task": board.looks_like_a_task(payload.get("q", ""))})
             if self.path == "/api/chat":
                 out = _board(payload) if payload.get("mode") == "board" else _single(payload)
                 out["usage"] = _state()["usage"]

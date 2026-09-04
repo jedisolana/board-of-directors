@@ -210,6 +210,54 @@ class BoardSession(unittest.TestCase):
         self.assertEqual(set(s.labels.values()), {a.model for a in s.answers})
 
 
+class TwoKindsOfQuestion(unittest.TestCase):
+    """"Should we build it?" and "build it" need opposite prompts.
+
+    The board shipped with only the first, so asking it to build something got four models
+    solemnly taking a position on whether building it was wise. They answered exactly what
+    they were asked; what they were asked was wrong.
+    """
+
+    def _prompts(self, kind):
+        t = OfflineTransport()
+        board.ask("build me a parser", transport=t, models=POOL, size=4, kind=kind)
+        return [p for _, p in t.calls]
+
+    def test_make_asks_for_the_thing_not_a_position(self):
+        first = self._prompts("make")[0]
+        self.assertIn("Do the task", first)
+        self.assertNotIn("your position", first)
+
+    def test_decide_still_asks_for_a_position(self):
+        first = self._prompts("decide")[0]
+        self.assertIn("your position", first)
+        self.assertNotIn("Do the task", first)
+
+    def test_the_make_chair_delivers_work_not_a_review(self):
+        chair = self._prompts("make")[-1]
+        self.assertIn("DELIVER THE FINISHED WORK", chair)
+        self.assertIn("Do not review the attempts", chair)
+
+    def test_the_make_ranking_prefers_doing_over_describing(self):
+        rank = [p for p in self._prompts("make") if "Rank them" in p][0]
+        self.assertIn("ACTUALLY DOES THE TASK", rank)
+
+    def test_the_session_records_which_kind_it_was(self):
+        s = board.ask("build a parser", transport=OfflineTransport(), models=POOL,
+                      size=4, kind="make")
+        self.assertEqual(s.kind, "make")
+        self.assertIn("RESULT (chair)", s.report())
+        self.assertNotIn("DECISION (chair)", s.report())
+
+    def test_the_guess_separates_tasks_from_questions(self):
+        for q in ("build me an FPS game", "write a TOML parser",
+                  "fix the crash in transport.py", "refactor this module"):
+            self.assertTrue(board.looks_like_a_task(q), q)
+        for q in ("should we rewrite the parser?", "is postgres better than sqlite?",
+                  "which model is best for this?", "do we need a queue here?"):
+            self.assertFalse(board.looks_like_a_task(q), q)
+
+
 class Catalogue(unittest.TestCase):
     def test_snapshot_loads_and_is_all_free(self):
         c = catalogue.snapshot()

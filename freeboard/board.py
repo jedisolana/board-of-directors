@@ -26,10 +26,28 @@ from dataclasses import dataclass, field
 from . import catalogue, redact, seats
 from .transport import Answer, Failure, OfflineTransport, Transport
 
+# TWO KINDS OF QUESTION, AND THEY NEED OPPOSITE PROMPTS.
+#
+# "Should we rewrite the parser?" wants a POSITION. "Write me a parser" wants the PARSER.
+# The board shipped with only the first prompt, so asking it to build something got four
+# models solemnly taking a position on whether building it was a good idea - they answered
+# exactly what they were asked, and what they were asked was wrong.
+#
+# DECIDE is a jury. MAKE is a competition: everyone attempts the same task, the attempts are
+# ranked blind, and the chair delivers the best one rather than summarising the field.
+
 ANSWER_PROMPT = (
     "You are one member of an independent board. Answer the question on your own judgement.\n"
     "Be specific and brief: your position, then the single strongest reason for it, then the "
     "one thing that would change your mind.\n\nQUESTION:\n{q}"
+)
+
+MAKE_PROMPT = (
+    "You are one of several people given the same task, working independently. Do the task.\n"
+    "Produce the actual thing that was asked for - the code, the text, the answer - not a plan "
+    "for it, not advice on how to approach it, and not a list of tools someone could use.\n"
+    "If the task is too large to finish, do the most useful complete PART of it and say in one "
+    "line what you left out. A finished piece beats an outline of the whole.\n\nTASK:\n{q}"
 )
 
 RANK_PROMPT = (
@@ -37,6 +55,27 @@ RANK_PROMPT = (
     "their identities hidden.\nRank them best to worst on reasoning quality alone -- not on "
     "whether they agree with you.\nReply with the labels in order, best first, then one line "
     "saying why the top one won.\n\nQUESTION:\n{q}\n\nANSWERS:\n{answers}"
+)
+
+MAKE_RANK_PROMPT = (
+    "Several people attempted the same task independently. Their attempts are below with "
+    "identities hidden.\nRank them best to worst on how well each one ACTUALLY DOES THE TASK "
+    "- correctness first, then completeness. An attempt that describes what it would do ranks "
+    "below one that does it, however well written.\nReply with the labels in order, best "
+    "first, then one line on what the winner got right.\n\nTASK:\n{q}\n\nATTEMPTS:\n{answers}"
+)
+
+MAKE_CHAIR_PROMPT = (
+    "You are the chair. You did not attempt this task. Below are independent attempts at it "
+    "and the members' blind rankings of each other.\n"
+    "DELIVER THE FINISHED WORK. Take the strongest attempt and improve it with anything the "
+    "others got right that it missed. Output the thing itself - the code, the text, the "
+    "answer - as one coherent piece.\n"
+    "Do not review the attempts. Do not describe what you merged. Do not say which member "
+    "won. The reader wants the work, not the minutes of the meeting.\n"
+    "If every attempt refused or produced only advice, say that plainly in one line rather "
+    "than inventing something none of them wrote.\n\n"
+    "TASK:\n{q}\n\nATTEMPTS:\n{answers}\n\nBLIND RANKINGS:\n{rankings}"
 )
 
 CHAIR_PROMPT = (
@@ -58,6 +97,7 @@ class Session:
     failures: list[Failure] = field(default_factory=list)
     rankings: list[Answer] = field(default_factory=list)
     labels: dict[str, str] = field(default_factory=dict)   # label -> model id
+    kind: str = "decide"
     decision: str | None = None
     no_quorum: str | None = None
 
@@ -89,7 +129,7 @@ class Session:
         if self.no_quorum:
             out.append(f"NO QUORUM: {self.no_quorum}")
         else:
-            out.append("DECISION (chair):")
+            out.append("RESULT (chair):" if self.kind == "make" else "DECISION (chair):")
             for line in (self.decision or "").splitlines():
                 out.append(f"    {line}")
         out.append("")
@@ -109,17 +149,17 @@ def _blind(answers: list[Answer]) -> tuple[str, dict[str, str]]:
 
 def ask(question: str, *, transport: Transport | None = None, models: list[dict] | None = None,
         size: int = 5, minimum: int = 3, peer_review: bool = True,
-        live_catalogue: bool = True) -> Session:
+        live_catalogue: bool = True, kind: str = "decide") -> Session:
     """Run one board session. Raises `redact.Refused` before anything leaves the machine."""
     return ask_in_context(question, prior=None, transport=transport, models=models, size=size,
                           minimum=minimum, peer_review=peer_review,
-                          live_catalogue=live_catalogue)
+                          live_catalogue=live_catalogue, kind=kind)
 
 
 def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    transport: Transport | None = None, models: list[dict] | None = None,
                    size: int = 5, minimum: int = 3, peer_review: bool = True,
-                   live_catalogue: bool = True) -> Session:
+                   live_catalogue: bool = True, kind: str = "decide") -> Session:
     """A board session that picks up an existing conversation.
 
     This is what makes the mode switch worth having. You talk to ONE model for a while at one
@@ -142,10 +182,11 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     members = seats.seat(models, size=size)
     seats.quorum(members, minimum=minimum)
     chair_model = seats.chair(models, members)
-    s = Session(question=question, members=members, chair_model=chair_model)
+    s = Session(question=question, members=members, chair_model=chair_model, kind=kind)
 
     # 1. independent answers -- each member reads the thread so far, then answers alone
-    prompt = ANSWER_PROMPT.format(q=question)
+    make = (kind == "make")
+    prompt = (MAKE_PROMPT if make else ANSWER_PROMPT).format(q=question)
     for m in members:
         r = transport.ask(m, prior + [{"role": "user", "content": prompt}])
         (s.answers if r.ok else s.failures).append(r)
@@ -161,7 +202,7 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
 
     # 2. blind peer ranking
     if peer_review and len(s.answers) > 1:
-        rp = RANK_PROMPT.format(q=question, answers=blind_text)
+        rp = (MAKE_RANK_PROMPT if make else RANK_PROMPT).format(q=question, answers=blind_text)
         for m in members:
             if not any(a.model == m["id"] for a in s.answers):
                 continue          # a member who did not answer does not get to rank
@@ -171,10 +212,28 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
 
     # 3. the chair
     ranked = "\n\n".join(f"--- ranking by a member ---\n{r.text}" for r in s.rankings) or "(none)"
-    cp = CHAIR_PROMPT.format(q=question, answers=blind_text, rankings=ranked)
+    cp = (MAKE_CHAIR_PROMPT if make else CHAIR_PROMPT).format(
+        q=question, answers=blind_text, rankings=ranked)
     r = transport.ask(chair_model, prior + [{"role": "user", "content": cp}])
     if r.ok:
         s.decision = r.text
     else:
         s.no_quorum = f"the chair could not answer ({r.reason}); no decision was synthesised"
     return s
+
+
+# A cheap guess at which kind of question this is, used only to SUGGEST a mode in the UI.
+# It never switches on its own: getting this wrong silently would be worse than asking.
+_MAKE_HINTS = (
+    "build", "write", "make", "create", "generate", "implement", "code", "draft",
+    "design a", "refactor", "fix", "add a", "convert", "translate", "rewrite",
+)
+
+
+def looks_like_a_task(q: str) -> bool:
+    """True when the question reads like work to do rather than a call to make."""
+    first = (q or "").strip().lower()
+    if first.startswith(("should ", "is ", "are ", "do we", "does ", "which ", "would ",
+                         "can we", "why ", "what is", "what are")):
+        return False
+    return any(first.startswith(w) or f" {w} " in first[:80] for w in _MAKE_HINTS)

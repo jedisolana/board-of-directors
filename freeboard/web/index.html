@@ -88,6 +88,11 @@
   .mode{padding:5px 11px;border-radius:20px;border:1px solid var(--line);background:none;
         color:var(--dim);font-size:12.5px;cursor:pointer}
   .mode.on{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  .kind{padding:4px 10px;border-radius:20px;border:1px dashed var(--line);background:none;
+        color:var(--dimmer);font-size:12px;cursor:pointer}
+  .kind.on{border-style:solid;border-color:var(--dimmer);color:var(--ink);background:var(--panel2)}
+  #kinds[hidden]{display:none!important}
+  #kinds:not([hidden]){display:inline-flex!important}
   .cost{color:var(--dimmer);font-size:11.5px;font-family:var(--mono);margin-left:auto}
   .row{display:flex;gap:9px;align-items:flex-end}
   textarea{flex:1;resize:none;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
@@ -167,6 +172,10 @@
         <div class="modes">
           <button class="mode on" id="mSingle">single model</button>
           <button class="mode" id="mBoard">board</button>
+          <span id="kinds" hidden style="display:none;gap:5px">
+            <button class="kind on" data-kind="decide">decide</button>
+            <button class="kind" data-kind="make">make</button>
+          </span>
           <span class="cost" id="cost">1 request</span>
         </div>
         <div class="row">
@@ -215,7 +224,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let S = null, mode = "single", talking = null, board = [], thread = [], busy = false, tier = 0;
-let sortKey = "coding";
+let sortKey = "coding", kind = "decide", nudged = false;
 
 const esc = t => (t||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const k = n => !n ? "-" : n < 1e6 ? Math.round(n/1000)+"k" : (n/1e6).toFixed(n%1e6?1:0)+"M";
@@ -348,7 +357,7 @@ function addSingle(r){
 function addBoard(r){
   const d = document.createElement("div");
   d.className = "turn";
-  let h = `<div class="who">board · ${r.answers.length} answered · chaired by `
+  let h = `<div class="who">board · ${esc(r.kind||"decide")} · ${r.answers.length} answered · chaired by `
         + `<span title="${esc(r.chair)}">${esc(label(r.chair))}</span> · ${r.calls} requests</div>`;
   h += `<div class="members">` + r.answers.map(a =>
     `<div class="member" title="${esc(a.model)}"><div class="lab">${esc(a.label)}</div>
@@ -379,7 +388,7 @@ async function send(){
       ? "the board is answering, one member at a time" : esc(label(talking))+" is thinking"}</div>`;
   $("#thread").appendChild(wait); scroll();
 
-  const r = await api("/api/chat", {mode, model:talking, board, messages:thread});
+  const r = await api("/api/chat", {mode, kind, model:talking, board, messages:thread});
   wait.remove();
 
   if(r.refused){
@@ -405,7 +414,29 @@ function setMode(m){
   mode = m;
   $("#mSingle").classList.toggle("on", m === "single");
   $("#mBoard").classList.toggle("on", m === "board");
+  $("#kinds").hidden = (m !== "board");
   paintModels();
+}
+function setKind(k){
+  kind = k;
+  document.querySelectorAll(".kind").forEach(b => b.classList.toggle("on", b.dataset.kind === k));
+}
+document.querySelectorAll(".kind").forEach(b => b.onclick = () => setKind(b.dataset.kind));
+
+// Suggest the right kind, never switch silently. Guessing wrong without saying so is how you
+// get four models earnestly debating whether your game SHOULD exist.
+let guessTimer = null;
+async function nudge(){
+  if(mode !== "board" || nudged) return;
+  const q = $("#input").value.trim();
+  if(q.length < 8) return;
+  const r = await api("/api/guess", {q});
+  if(r.task && kind === "decide"){
+    setKind("make"); nudged = true;
+    note("Switched to make", "That reads like a task rather than a question, so the board will "
+       + "ATTEMPT it and the chair will hand back the best attempt. Click <b>decide</b> if you "
+       + "wanted opinions instead.", "warn");
+  }
 }
 
 document.querySelectorAll(".sort").forEach(b => b.onclick = () => {
@@ -420,11 +451,12 @@ $("#input").onkeydown = e => {
   if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); }
 };
 $("#input").oninput = e => {
+  clearTimeout(guessTimer); guessTimer = setTimeout(nudge, 600);
   e.target.style.height = "auto";
   e.target.style.height = Math.min(e.target.scrollHeight, 190) + "px";
 };
 $("#bClear").onclick = () => {
-  thread = [];
+  thread = []; nudged = false;
   $("#thread").innerHTML = `<div class="empty" id="empty">New thread. Ask something.</div>`;
 };
 $("#bRefresh").onclick = async () => {
@@ -500,7 +532,7 @@ async function sendCode(asBoard){
   $("#thread").appendChild(wait); scroll();
 
   const r = await api("/api/chat", {mode: asBoard ? "board" : "single", model: talking,
-                                    board, messages: [{role:"user", content: line}],
+                                    board, kind, messages: [{role:"user", content: line}],
                                     code_path: scanned.root, send_anyway: sendAnyway});
   wait.remove();
   if(r.refused){
