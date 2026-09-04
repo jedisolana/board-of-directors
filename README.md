@@ -6,7 +6,7 @@ Ask a question once and several models from *different companies* answer it inde
 rank each other blind, and a chair that didn't vote writes the decision. It runs on
 OpenRouter's free tier, so it costs nothing to try.
 
-![The console](docs/console.png)
+![The console](docs/fig-console.png)
 
 ```bash
 python3 -m freeboard.cli
@@ -14,6 +14,33 @@ python3 -m freeboard.cli
 
 From a clone of this repo, that's the whole thing. No dependencies, no build step, no key
 required to look around — it opens a console in your browser, served from your own machine.
+
+---
+
+## Here it is working
+
+A real session. Four free models from four companies, asked whether a two-person startup
+should write automated tests before product-market fit. Each answered without seeing the
+others; then they ranked each other blind; then a chair that never voted wrote this:
+
+![The chair's decision](docs/fig-verdict.png)
+
+It counted the vote — **3–1 against** — named the dissent, and gave four reasons it did not
+carry, including that *"the blind rankings unanimously placed B last."* Then it said what
+would reverse the decision.
+
+That is the thing one model cannot give you: a position that has already survived being
+argued with.
+
+### And when it goes wrong, it says so
+
+An earlier real session, on a different question. Three members answered; two were rate
+limited by their providers:
+
+![Members answering independently](docs/fig-members.png)
+
+Two members missing, named, **not counted as agreement**. The board does not quietly become a
+three-model board and present a tidier result.
 
 ---
 
@@ -52,7 +79,7 @@ something produced four models solemnly taking a position on whether building it
 
 ## Audit a folder of code
 
-![Auditing a codebase](docs/audit.png)
+![Auditing a codebase](docs/fig-audit.png)
 
 Point it at a project. It reads the files **on your machine**, packs them into one message,
 and asks one model or the whole board. Your whole codebase usually fits many times over —
@@ -194,9 +221,10 @@ session.labels       # "Member A" -> model id, the audit trail
 
 ```bash
 python3 -m unittest discover -s tests
+ruff check .
 ```
 
-50 tests, no network, no dependencies. Most of them are failure paths, because a board that
+59 tests, no network, no dependencies. Most of them are failure paths, because a board that
 works when every model answers is the easy half. They cover what happens when a member is
 throttled, when the seam sees a key, when the pool has no independent members left, when two
 consoles write the counter at once — and, after being caught by them the hard way, whether the
