@@ -1,0 +1,541 @@
+{
+  "captured": "2026-09-04T18:50:53Z",
+  "source": "https://openrouter.ai/api/v1/models",
+  "note": "Rows whose prompt AND completion price are both 0. Free models come and go - refresh with `freeboard refresh`.",
+  "total_models_seen": 427,
+  "models": [
+    {
+      "id": "cohere/north-mini-code:free",
+      "name": "Cohere: North Mini Code (free)",
+      "family": "cohere",
+      "context_length": 256000,
+      "max_completion_tokens": 64000,
+      "is_moderated": true,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ]
+    },
+    {
+      "id": "dots-studio/dots-3-note-preview:free",
+      "name": "Dots Studio: Dots3-Note Preview (free)",
+      "family": "dots-studio",
+      "context_length": 512000,
+      "max_completion_tokens": 460800,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "google/gemma-4-26b-a4b-it:free",
+      "name": "Google: Gemma 4 26B A4B  (free)",
+      "family": "google",
+      "context_length": 262144,
+      "max_completion_tokens": 32768,
+      "is_moderated": false,
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "google/gemma-4-31b-it:free",
+      "name": "Google: Gemma 4 31B (free)",
+      "family": "google",
+      "context_length": 262144,
+      "max_completion_tokens": 32768,
+      "is_moderated": false,
+      "input_modalities": [
+        "image",
+        "text",
+        "video"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "google/lyria-3-clip-preview",
+      "name": "Google: Lyria 3 Clip Preview",
+      "family": "google",
+      "context_length": 1048576,
+      "max_completion_tokens": 65536,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supported_parameters": [
+        "max_tokens",
+        "response_format",
+        "seed",
+        "temperature",
+        "top_p"
+      ]
+    },
+    {
+      "id": "google/lyria-3-pro-preview",
+      "name": "Google: Lyria 3 Pro Preview",
+      "family": "google",
+      "context_length": 1048576,
+      "max_completion_tokens": 65536,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supported_parameters": [
+        "max_tokens",
+        "response_format",
+        "seed",
+        "temperature",
+        "top_p"
+      ]
+    },
+    {
+      "id": "inclusionai/ling-3.0-flash-fin:free",
+      "name": "Ling 3.0 Flash Fin (free)",
+      "family": "inclusionai",
+      "context_length": 262144,
+      "max_completion_tokens": 32768,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ]
+    },
+    {
+      "id": "inclusionai/ling-3.0-flash-sante:free",
+      "name": "inclusionAI: Ling 3.0 Flash Sante (free)",
+      "family": "inclusionai",
+      "context_length": 262144,
+      "max_completion_tokens": 32768,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ]
+    },
+    {
+      "id": "liquid/lfm-2.5-2.6b:free",
+      "name": "LiquidAI: LFM2.5-2.6B (free)",
+      "family": "liquid",
+      "context_length": 65536,
+      "max_completion_tokens": 8192,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_completion_tokens",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ]
+    },
+    {
+      "id": "minimax/minimax-m2.7:free",
+      "name": "MiniMax: MiniMax M2.7 (free)",
+      "family": "minimax",
+      "context_length": 196608,
+      "max_completion_tokens": 176947,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "minimax/minimax-m3:free",
+      "name": "MiniMax: MiniMax M3 (free)",
+      "family": "minimax",
+      "context_length": 1048576,
+      "max_completion_tokens": 943718,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      "name": "NVIDIA: Nemotron 3 Nano Omni (free)",
+      "family": "nvidia",
+      "context_length": 256000,
+      "max_completion_tokens": 65536,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "audio",
+        "image",
+        "video"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "nvidia/nemotron-3-super-120b-a12b:free",
+      "name": "NVIDIA: Nemotron 3 Super (free)",
+      "family": "nvidia",
+      "context_length": 262144,
+      "max_completion_tokens": 235929,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "name": "NVIDIA: Nemotron 3 Ultra (free)",
+      "family": "nvidia",
+      "context_length": 1000000,
+      "max_completion_tokens": 65536,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "nvidia/nemotron-3.5-content-safety:free",
+      "name": "NVIDIA: Nemotron 3.5 Content Safety (free)",
+      "family": "nvidia",
+      "context_length": 128000,
+      "max_completion_tokens": 8192,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "seed",
+        "temperature",
+        "top_p"
+      ]
+    },
+    {
+      "id": "nvidia/nemotron-3.5-lightning:free",
+      "name": "NVIDIA: Nemotron 3.5 Lightning (free)",
+      "family": "nvidia",
+      "context_length": 1000000,
+      "max_completion_tokens": 65536,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "openrouter/free",
+      "name": "Free Models Router",
+      "family": "openrouter",
+      "context_length": 200000,
+      "max_completion_tokens": null,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_completion_tokens",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ]
+    },
+    {
+      "id": "poolside/laguna-s-2.1:free",
+      "name": "Poolside: Laguna S 2.1 (free)",
+      "family": "poolside",
+      "context_length": 262144,
+      "max_completion_tokens": 32768,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ]
+    },
+    {
+      "id": "poolside/laguna-xs-2.1:free",
+      "name": "Poolside: Laguna XS 2.1 (free)",
+      "family": "poolside",
+      "context_length": 262144,
+      "max_completion_tokens": 32768,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ]
+    },
+    {
+      "id": "thinkingmachines/inkling-small:free",
+      "name": "Thinking Machines: Inkling Small (free)",
+      "family": "thinkingmachines",
+      "context_length": 1048576,
+      "max_completion_tokens": 262144,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "seed",
+        "stop",
+        "temperature",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "thinkingmachines/inkling:free",
+      "name": "Thinking Machines: Inkling (free)",
+      "family": "thinkingmachines",
+      "context_length": 1048576,
+      "max_completion_tokens": 262144,
+      "is_moderated": false,
+      "input_modalities": [
+        "text",
+        "image",
+        "audio"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "seed",
+        "stop",
+        "temperature",
+        "tools",
+        "top_p"
+      ]
+    },
+    {
+      "id": "z-ai/glm-5.2:free",
+      "name": "Z.ai: GLM 5.2 (free)",
+      "family": "z-ai",
+      "context_length": 256000,
+      "max_completion_tokens": 230400,
+      "is_moderated": false,
+      "input_modalities": [
+        "text"
+      ],
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ]
+    }
+  ]
+}

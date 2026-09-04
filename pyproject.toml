@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freeboard"
+version = "0.1.0"
+description = "A board of directors made of free models: independent votes, blind ranking, a chair that didn't vote."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["llm", "openrouter", "ensemble", "multi-agent", "jury", "mixture-of-agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = []
+
+[project.scripts]
+freeboard = "freeboard.cli:main"
+
+[tool.setuptools]
+packages = ["freeboard"]
+
+[tool.setuptools.package-data]
+freeboard = ["../data/free-models.json"]
