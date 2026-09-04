@@ -14,18 +14,52 @@ import contextlib
 import json
 import os
 
-HOME = os.path.expanduser(os.environ.get("FREEBOARD_HOME", "~/.freeboard"))
+DEFAULT_HOME = os.path.expanduser("~/.board-of-directors")
+HOME = os.path.expanduser(os.environ.get("BOARD_HOME", DEFAULT_HOME))
 CONFIG = os.path.join(HOME, "config.json")
 ENV_KEY = "OPENROUTER_API_KEY"
+
+# Where this lived before the project was named. A rename must not cost someone their key and
+# their day's call count -- they did nothing wrong, and "it forgot everything" is the worst
+# possible first impression of a new version.
+#
+# The literal is split so that a project-wide find-and-replace on the old name cannot rewrite
+# it. It already did once: the rename pass turned this into the NEW path, the guard against
+# migrating a directory onto itself then matched, and the migration silently became a no-op --
+# a rename that quietly ate the key it was written to preserve.
+LEGACY_HOME = os.path.expanduser("~/." + "freeboard")
+
+
+def _migrate() -> None:
+    """Move a previous install's files across, once, without overwriting anything newer."""
+    # ONLY into the default home. Setting BOARD_HOME is a request for that exact directory --
+    # a test fixture, a second account, a sandbox - and importing a previous install's key and
+    # call count into it is not a migration, it is contamination. The counter tests caught
+    # this immediately by starting with someone else's calls already on the clock.
+    if os.path.abspath(HOME) != os.path.abspath(DEFAULT_HOME):
+        return
+    if os.path.abspath(HOME) == os.path.abspath(LEGACY_HOME) or not os.path.isdir(LEGACY_HOME):
+        return
+    try:
+        os.makedirs(HOME, mode=0o700, exist_ok=True)
+        for name in ("config.json", "usage.json"):
+            old, new = os.path.join(LEGACY_HOME, name), os.path.join(HOME, name)
+            if os.path.exists(old) and not os.path.exists(new):
+                with open(old) as a, open(os.open(new, os.O_WRONLY | os.O_CREAT, 0o600), "w") as b:
+                    b.write(a.read())
+    except OSError:
+        pass
 
 
 def _ensure_home() -> None:
     os.makedirs(HOME, mode=0o700, exist_ok=True)
+    _migrate()
     with contextlib.suppress(OSError):
         os.chmod(HOME, 0o700)
 
 
 def load() -> dict:
+    _migrate()
     try:
         with open(CONFIG) as f:
             return json.load(f)

@@ -1,6 +1,6 @@
-# freeboard
+# Board of Directors
 
-**A board of directors made of free models.**
+**A board made of other people's free models.**
 
 Ask a question once and several models from *different companies* answer it independently,
 rank each other blind, and a chair that didn't vote writes the decision. It runs on
@@ -9,7 +9,7 @@ OpenRouter's free tier, so it costs nothing to try.
 ![The console](docs/fig-console.png)
 
 ```bash
-python3 -m freeboard.cli
+python3 -m boardofdirectors.cli
 ```
 
 From a clone of this repo, that's the whole thing. No dependencies, no build step, no key
@@ -54,7 +54,7 @@ panel of several **smaller** models beats one big judge — and the reason is th
 drawn from **disjoint model families**. That word carries the result. Seat three checkpoints
 of the same family and you haven't built a jury, you've built one model with a stutter.
 
-So freeboard enforces it: **at most one seat per family.** Ask for more seats than there are
+So board enforces it: **at most one seat per family.** Ask for more seats than there are
 families and you get fewer seats and a reason — never a padded board.
 
 ## One conversation, two modes
@@ -121,7 +121,7 @@ So every call returns an `Answer` or a `Failure`, never an empty `Answer`. Failu
 and named, and if too few got through, the session returns **NO QUORUM** rather than a
 confident answer from the survivors.
 
-**Nothing leaves without passing the seam.** `freeboard.redact` refuses — it does not scrub —
+**Nothing leaves without passing the seam.** `boardofdirectors.redact` refuses — it does not scrub —
 on API keys, private keys, JWTs, bearer headers, private and Tailscale addresses, `.ssh` paths,
 `.env` files and home-directory paths. A scrubber that quietly rewrites your prompt is worse
 than a wall: you never learn you nearly sent a key.
@@ -143,7 +143,7 @@ Plus **20 requests per minute**.
 The $10 is a **one-time, all-time threshold** — not a balance you spend down. It moves which
 row you're on, permanently. That's **20× your daily free capacity for ten dollars**.
 
-**freeboard doesn't ask you which row you're on.** OpenRouter reports `is_free_tier` when it
+**board doesn't ask you which row you're on.** OpenRouter reports `is_free_tier` when it
 verifies your key, and the account knows what its owner often doesn't. The question only
 appears if OpenRouter declines to answer.
 
@@ -197,7 +197,7 @@ filling a missing score with zero would rank a model bottom for a fact nobody es
 ## Use it from Python
 
 ```python
-from freeboard import board
+from boardofdirectors import board
 
 session = board.ask("Should we rewrite the parser this quarter?")
 print(session.report())
@@ -210,12 +210,12 @@ session.labels       # "Member A" -> model id, the audit trail
 
 | command | |
 |---|---|
-| `freeboard` | open the console |
-| `freeboard ask "<question>"` | one session in the terminal |
-| `freeboard board` | who's seated, and the chair |
-| `freeboard budget` | how many sessions your account gets |
-| `freeboard check "<text>"` | test the outbound seam, sending nothing |
-| `freeboard refresh` | re-read the live catalogue |
+| `board` | open the console |
+| `board ask "<question>"` | one session in the terminal |
+| `board board` | who's seated, and the chair |
+| `board budget` | how many sessions your account gets |
+| `board check "<text>"` | test the outbound seam, sending nothing |
+| `board refresh` | re-read the live catalogue |
 
 ## Tests
 

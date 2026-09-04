@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "freeboard"
+name = "board-of-directors"
 version = "0.1.0"
 description = "A board of directors made of free models: independent votes, blind ranking, a chair that didn't vote."
 readme = "README.md"
@@ -19,10 +19,11 @@ classifiers = [
 dependencies = []
 
 [project.scripts]
-freeboard = "freeboard.cli:main"
+board = "boardofdirectors.cli:main"
+board-of-directors = "boardofdirectors.cli:main"
 
 [tool.setuptools]
-packages = ["freeboard"]
+packages = ["boardofdirectors"]
 
 [tool.setuptools.package-data]
-freeboard = ["../data/free-models.json"]
+boardofdirectors = ["../data/free-models.json"]

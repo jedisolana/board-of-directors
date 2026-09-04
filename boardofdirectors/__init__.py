@@ -1,6 +1,6 @@
-"""freeboard -- compose free OpenRouter models into a board that votes.
+"""board -- compose free OpenRouter models into a board that votes.
 
-    from freeboard import board
+    from boardofdirectors import board
     session = board.ask("Should we rewrite the parser this quarter?")
     print(session.report())
 """

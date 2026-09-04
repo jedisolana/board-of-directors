@@ -60,7 +60,7 @@ def _transport(offline: bool):
     key, _ = config.api_key()
     if offline or not key:
         return OfflineTransport(), False
-    return OpenRouterTransport(key, app_title="freeboard"), True
+    return OpenRouterTransport(key, app_title="Board of Directors"), True
 
 
 def _state() -> dict:
@@ -284,13 +284,13 @@ def serve(port: int = 8420, open_browser: bool = True) -> int:
     url = f"http://127.0.0.1:{port}/"
     if _in_use(port):
         print(f"\n  Something is already listening on port {port}.")
-        print(f"  If it is freeboard, it is already running: {url}")
-        print(f"  Otherwise start this one somewhere else:  freeboard ui --port {port + 1}\n")
+        print(f"  If it is the console, it is already running: {url}")
+        print(f"  Otherwise start this one somewhere else:  board ui --port {port + 1}\n")
         return 1
 
     _models()
     with _Server(("127.0.0.1", port), Handler) as httpd:
-        print(f"\n  freeboard console -> {url}   (build {build_stamp()})")
+        print(f"\n  Board of Directors -> {url}   (build {build_stamp()})")
         print("  local only: 127.0.0.1, your key stays on this machine.")
         print("  ctrl-c to stop.\n")
         if open_browser:

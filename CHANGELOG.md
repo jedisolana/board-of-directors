@@ -2,6 +2,8 @@
 
 ## 0.1.0 — 2026-09-04
 
+Released as **Board of Directors**.
+
 First release.
 
 ### The board

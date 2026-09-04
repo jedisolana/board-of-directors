@@ -12,8 +12,8 @@ import tempfile
 import threading
 import unittest
 
-from freeboard import board, budget, catalogue, config, redact, seats, usage
-from freeboard.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
+from boardofdirectors import board, budget, catalogue, config, redact, seats, usage
+from boardofdirectors.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
 
 
 def model(mid, ctx=100000, out=8000, params=("max_tokens", "temperature"), mods=("text",)):
@@ -145,7 +145,7 @@ class Seam(unittest.TestCase):
 
     def test_the_seam_is_quiet_on_this_codebase(self):
         """The one repo we can check exhaustively: our own, minus its deliberate fixtures."""
-        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "freeboard")
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "boardofdirectors")
         noisy = []
         for name in sorted(os.listdir(root)):
             if not name.endswith(".py"):
@@ -413,16 +413,16 @@ class TheCounter(unittest.TestCase):
 
     def setUp(self):
         self.home = tempfile.mkdtemp()
-        self._old = os.environ.get("FREEBOARD_HOME")
-        os.environ["FREEBOARD_HOME"] = self.home
+        self._old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
         importlib.reload(config)
         importlib.reload(usage)
 
     def tearDown(self):
         if self._old is None:
-            os.environ.pop("FREEBOARD_HOME", None)
+            os.environ.pop("BOARD_HOME", None)
         else:
-            os.environ["FREEBOARD_HOME"] = self._old
+            os.environ["BOARD_HOME"] = self._old
         shutil.rmtree(self.home, ignore_errors=True)
         importlib.reload(config)
         importlib.reload(usage)
@@ -468,6 +468,80 @@ class TheCounter(unittest.TestCase):
         self.assertEqual(usage.status(0).calls, 200)
 
 
+class TheRename(unittest.TestCase):
+    """A rename must not cost someone their key.
+
+    The rename pass rewrote the LEGACY_HOME literal to the NEW path, the guard against
+    migrating a directory onto itself then matched, and the migration became a silent no-op --
+    a rename that quietly ate the key it was written to preserve. Found only because the
+    migration was actually run and the key had vanished.
+    """
+
+    def test_the_legacy_home_is_not_the_current_home(self):
+        self.assertNotEqual(os.path.abspath(config.HOME),
+                            os.path.abspath(config.LEGACY_HOME))
+        self.assertTrue(config.LEGACY_HOME.endswith("freeboard"))
+
+    def test_an_old_install_is_carried_across(self):
+        old = tempfile.mkdtemp()
+        new = tempfile.mkdtemp()
+        os.rmdir(new)
+        with open(os.path.join(old, "config.json"), "w") as f:
+            f.write('{"api_key": "sk-or-v1-carried", "credits_purchased_usd": 10}')
+        with open(os.path.join(old, "usage.json"), "w") as f:
+            f.write('{"days": {"2026-09-04": {"calls": 7, "failed": 0, "models": {}}}}')
+        try:
+            os.environ["BOARD_HOME"] = new
+            importlib.reload(config)
+            config.LEGACY_HOME = old
+            config.DEFAULT_HOME = config.HOME     # this run's home IS the default
+            self.assertEqual(config.load().get("api_key"), "sk-or-v1-carried")
+            self.assertTrue(os.path.exists(os.path.join(new, "usage.json")))
+            self.assertTrue(os.path.exists(os.path.join(old, "config.json")),
+                            "the old install must not be deleted")
+        finally:
+            os.environ.pop("BOARD_HOME", None)
+            importlib.reload(config)
+            shutil.rmtree(old, ignore_errors=True)
+            shutil.rmtree(new, ignore_errors=True)
+
+    def test_an_explicit_home_is_never_migrated_into(self):
+        """BOARD_HOME is a request for that exact directory - a fixture, a second account, a
+        sandbox. Importing a previous install's key and call count into it is contamination,
+        not migration."""
+        old, new = tempfile.mkdtemp(), tempfile.mkdtemp()
+        with open(os.path.join(old, "config.json"), "w") as f:
+            f.write('{"api_key": "sk-or-v1-should-not-appear"}')
+        try:
+            os.environ["BOARD_HOME"] = new
+            importlib.reload(config)
+            config.LEGACY_HOME = old              # DEFAULT_HOME left alone on purpose
+            self.assertEqual(config.load(), {})
+        finally:
+            os.environ.pop("BOARD_HOME", None)
+            importlib.reload(config)
+            shutil.rmtree(old, ignore_errors=True)
+            shutil.rmtree(new, ignore_errors=True)
+
+    def test_migration_never_overwrites_newer_state(self):
+        old, new = tempfile.mkdtemp(), tempfile.mkdtemp()
+        with open(os.path.join(old, "config.json"), "w") as f:
+            f.write('{"api_key": "sk-or-v1-old"}')
+        with open(os.path.join(new, "config.json"), "w") as f:
+            f.write('{"api_key": "sk-or-v1-current"}')
+        try:
+            os.environ["BOARD_HOME"] = new
+            importlib.reload(config)
+            config.LEGACY_HOME = old
+            config.DEFAULT_HOME = config.HOME
+            self.assertEqual(config.load().get("api_key"), "sk-or-v1-current")
+        finally:
+            os.environ.pop("BOARD_HOME", None)
+            importlib.reload(config)
+            shutil.rmtree(old, ignore_errors=True)
+            shutil.rmtree(new, ignore_errors=True)
+
+
 class ThePage(unittest.TestCase):
     """Catch the mistake that kept the key dialog open.
 
@@ -478,7 +552,7 @@ class ThePage(unittest.TestCase):
     """
 
     PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "..", "freeboard", "web", "index.html")
+                        "..", "boardofdirectors", "web", "index.html")
 
     def page(self):
         with open(self.PAGE) as f:

@@ -118,7 +118,7 @@ class OfflineTransport(Transport):
 class OpenRouterTransport(Transport):
     """The real client. Sends only parameters the model is documented to support."""
 
-    def __init__(self, api_key: str, *, app_url: str | None = None, app_title: str = "freeboard",
+    def __init__(self, api_key: str, *, app_url: str | None = None, app_title: str = "Board of Directors",
                  timeout: float = 120.0, max_retries: int = 4, sleep=time.sleep, meter: bool = True):
         if not api_key:
             raise ValueError("no API key -- use OfflineTransport to run without one")

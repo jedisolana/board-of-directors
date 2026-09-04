@@ -1,4 +1,4 @@
-"""freeboard -- a board of directors made of free models."""
+"""Board of Directors -- a board made of other people's free models."""
 from __future__ import annotations
 
 import argparse
@@ -35,14 +35,14 @@ def _chosen(c: dict, args) -> list[dict] | None:
         (members.append(by_id[mid]) if mid in by_id else gone.append(mid))
     if gone:
         print(f"  note: {len(gone)} saved member(s) are no longer free -- "
-              f"{', '.join(gone)}. Run `freeboard pick` again.", file=sys.stderr)
+              f"{', '.join(gone)}. Run `board pick` again.", file=sys.stderr)
     return members or None
 
 
 # ----------------------------------------------------------------- setup / status
 
 def cmd_setup(args) -> int:
-    print("\n  freeboard setup\n" + DASH)
+    print("\n  board of directors -- setup\n" + DASH)
     key, where = config.api_key()
     if key:
         print(f"  A key is already set ({config.mask(key)}, from {where}).")
@@ -52,10 +52,10 @@ def cmd_setup(args) -> int:
             key = None
     if not key:
         print("\n  Paste your OpenRouter API key. Get one at https://openrouter.ai/keys")
-        print("  It is not echoed, and it is saved to a 0600 file in ~/.freeboard.")
+        print("  It is not echoed, and it is saved to a 0600 file in ~/.board-of-directors.")
         entered = getpass.getpass("  key: ").strip()
         if not entered:
-            print("  Nothing entered -- no key saved. freeboard still runs with --offline.")
+            print("  Nothing entered -- no key saved. it still runs with --offline.")
         else:
             path = config.set_api_key(entered)
             print(f"  saved {config.mask(entered)} -> {path}")
@@ -65,19 +65,19 @@ def cmd_setup(args) -> int:
     print(f"  had ${budget.CREDIT_THRESHOLD_USD} or more of credits purchased.\n")
     print(f"      no   ->  {budget.RPD_WITHOUT_CREDITS} free requests a day")
     print(f"      yes  ->  {budget.RPD_WITH_CREDITS} free requests a day (a one-time, all-time threshold)\n")
-    print("  Nothing can read this from the API, so freeboard has to be told.")
+    print("  Nothing can read this from the API, so it has to be told.")
     answer = input(f"  Has this account ever had ${budget.CREDIT_THRESHOLD_USD}+ put in? [y/N] ")
     config.set_tier(budget.CREDIT_THRESHOLD_USD if answer.strip().lower() in ("y", "yes") else 0.0)
     print(f"  allowance set to {budget.Budget(config.tier()).per_day} requests/day")
-    print("\n  Next:  freeboard pick     choose who sits on your board")
-    print("         freeboard ask \"...\"  put a question to it\n")
+    print("\n  Next:  board pick     choose who sits on your board")
+    print("         board ask \"...\"  put a question to it\n")
     return 0
 
 
 def cmd_status(args) -> int:
     key, where = config.api_key()
     s = usage.status()
-    print("\n  freeboard\n" + DASH)
+    print("\n  Board of Directors\n" + DASH)
     print(f"  key         {config.mask(key)}  ({where})")
     print(f"  allowance   {s.allowance} requests/day"
           f"   {'($10+ tier)' if s.qualified else '(no credits ever purchased -- $10 makes this 1000)'}")
@@ -120,7 +120,7 @@ def cmd_pick(args) -> int:
               f"  {'yes' if catalogue.speaks_json(m) else '-':<5}{m['family']}")
     print(DASH)
     print("  One seat per family -- two models from the same company is not a second opinion.")
-    print("  Type numbers separated by spaces (e.g. 2 5 9 13), or `auto` to let freeboard choose.\n")
+    print("  Type numbers separated by spaces (e.g. 2 5 9 13), or `auto` to let it choose.\n")
     raw = input("  members: ").strip()
 
     if raw.lower() in ("auto", ""):
@@ -188,11 +188,11 @@ def cmd_ask(args) -> int:
     key, _ = config.api_key()
     if args.offline or not key:
         if not args.offline:
-            print("  no API key -- running offline with stub members. `freeboard setup` to fix.\n",
+            print("  no API key -- running offline with stub members. `board setup` to fix.\n",
                   file=sys.stderr)
         transport = OfflineTransport()
     else:
-        transport = OpenRouterTransport(key, app_title="freeboard")
+        transport = OpenRouterTransport(key, app_title="Board of Directors")
 
     members = _chosen(c, args)
     models = c["models"]
@@ -265,7 +265,7 @@ def cmd_refresh(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="freeboard", description=__doc__)
+    p = argparse.ArgumentParser(prog="board", description=__doc__)
     p.add_argument("--offline", action="store_true",
                    help="bundled catalogue and stub members -- no key, no network")
     p.add_argument("--size", type=int, default=5, help="members when auto-picking (default 5)")
@@ -306,14 +306,14 @@ def main(argv: list[str] | None = None) -> int:
     r.set_defaults(fn=cmd_refresh)
 
     args = p.parse_args(argv)
-    if not args.cmd:                      # bare `freeboard` -> open the console
+    if not args.cmd:                      # bare `board` -> open the console
         return server.serve()
     rc = args.fn(args)
     if args.cmd == "status":              # a nudge toward whatever is still missing
         if not config.api_key()[0]:
-            print("  start here:  freeboard setup   (or just `freeboard` for the console)\n")
+            print("  start here:  board setup   (or just `board` for the console)\n")
         elif not config.board():
-            print("  next:        freeboard pick    (or just `freeboard` for the console)\n")
+            print("  next:        board pick    (or just `board` for the console)\n")
     return rc
 
 
