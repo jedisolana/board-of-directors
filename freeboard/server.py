@@ -22,7 +22,7 @@ import socketserver
 import threading
 import webbrowser
 
-from . import board, budget, catalogue, config, redact, seats, usage
+from . import board, budget, catalogue, codebase, config, redact, seats, usage
 from .transport import OfflineTransport, OpenRouterTransport
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -69,6 +69,28 @@ def _state() -> dict:
     }
 
 
+def _code_message(payload: dict, model: dict | None) -> str | None:
+    """Turn a folder into the message text, or None if no folder was named.
+
+    The seam has already run over every file at scan time. A tree with findings is refused
+    unless the caller has explicitly ticked `send_anyway` FOR THIS SEND -- test fixtures and
+    example keys are common enough in real repos that a flat refusal would make the feature
+    unusable, but the override has to be a deliberate act each time, never a saved setting.
+    """
+    path = (payload.get("code_path") or "").strip()
+    if not path:
+        return None
+    sc = codebase.scan(path)
+    if sc.findings and not payload.get("send_anyway"):
+        raise redact.Refused([redact.Finding("code scan", f"{r}", w.split(": ")[-1])
+                              for r, w in sc.findings[:12]])
+    # leave the model room to answer: never fill more than two thirds of its window
+    budget_tokens = None
+    if model and model.get("context_length"):
+        budget_tokens = int(model["context_length"] * 0.66)
+    return codebase.audit_message(sc, budget_tokens, ask=payload.get("ask", ""))
+
+
 def _single(payload: dict) -> dict:
     """One model, one request. The everyday turn."""
     models = _models()
@@ -77,8 +99,12 @@ def _single(payload: dict) -> dict:
     if not model:
         return {"error": f"{mid} is not on today's free list -- it may have expired."}
     transport, live = _transport(payload.get("offline", False))
-    msgs = payload.get("messages") or []
+    msgs = list(payload.get("messages") or [])
+    code = _code_message(payload, model)
     redact.check("\n".join(m.get("content", "") for m in msgs))
+    if code:
+        msgs = msgs[:-1] + [{"role": "user", "content": code}] if msgs else \
+               [{"role": "user", "content": code}]
     r = transport.ask(model, msgs)
     if not r.ok:
         return {"mode": "single", "model": mid, "failed": True, "reason": r.reason, "calls": 1}
@@ -99,10 +125,16 @@ def _board(payload: dict) -> dict:
         return {"error": str(e)}
 
     transport, live = _transport(payload.get("offline", False))
-    history = payload.get("messages") or []
+    history = list(payload.get("messages") or [])
     redact.check("\n".join(m.get("content", "") for m in history))
     question = history[-1].get("content", "") if history else ""
     prior = history[:-1]
+    # the smallest window on the board decides how much code every member can be given,
+    # so each of them reads the SAME tree -- otherwise they are not auditing the same thing
+    smallest = min((m.get("context_length") or 0) for m in members) or None
+    code = _code_message(payload, {"context_length": smallest} if smallest else None)
+    if code:
+        question = code
 
     ordered = members + [m for m in models if m["id"] not in {x["id"] for x in members}]
     s = board.ask_in_context(question, prior=prior, transport=transport, models=ordered,
@@ -136,6 +168,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/api/projects"):
+            return self._json({"projects": codebase.suggest()})
         if self.path.startswith("/api/state"):
             if "refresh=1" in self.path:
                 _models(refresh=True)
@@ -158,6 +192,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/board":
                 config.set_board(list(payload.get("board") or []))
                 return self._json(_state())
+            if self.path == "/api/scan":
+                sc = codebase.scan(payload["path"])
+                return self._json(sc.summary())
             if self.path == "/api/chat":
                 out = _board(payload) if payload.get("mode") == "board" else _single(payload)
                 out["usage"] = _state()["usage"]
