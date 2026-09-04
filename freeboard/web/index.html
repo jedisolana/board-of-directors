@@ -208,7 +208,14 @@
   <p>Saved to a 0600 file in <code>~/.freeboard</code> on this machine. It goes to OpenRouter
      and nowhere else &mdash; the browser never receives it back.
      Get one at <b>openrouter.ai/keys</b>.</p>
-  <input id="keyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off">
+  <div style="position:relative">
+    <input id="keyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off"
+           spellcheck="false" style="padding-right:52px">
+    <button id="keyEye" type="button" style="position:absolute;right:6px;top:5px;padding:3px 9px;
+            font-size:11px;background:none;border:none;color:var(--dim)">show</button>
+  </div>
+  <div id="keyState" style="font-size:11.5px;color:var(--dimmer);margin:-6px 0 12px"></div>
+  <div id="keyErr" class="note bad" style="display:none;margin-bottom:12px"></div>
   <p style="margin:0 0 14px">Has this account ever had <b>$10+</b> of credits put in?
      That is what decides 50 vs 1000 requests a day, and nothing can read it from the API.</p>
   <div class="modes" style="margin-bottom:16px">
@@ -562,15 +569,38 @@ $("#codePath").onkeydown = e => { if(e.key === "Enter"){ e.preventDefault(); doS
 $("#codeOne").onclick = () => sendCode(false);
 $("#codeBoard").onclick = () => sendCode(true);
 
-$("#bKey").onclick = () => $("#dKey").showModal();
+$("#bKey").onclick = () => { paintKeyState(); $("#keyErr").style.display="none";
+                             $("#dKey").showModal(); };
 $("#keyCancel").onclick = () => $("#dKey").close();
 $("#tNo").onclick  = () => { tier = 0;  $("#tNo").classList.add("on");  $("#tYes").classList.remove("on"); };
 $("#tYes").onclick = () => { tier = 10; $("#tYes").classList.add("on"); $("#tNo").classList.remove("on"); };
+$("#keyEye").onclick = () => {
+  const i = $("#keyInput");
+  i.type = i.type === "password" ? "text" : "password";
+  $("#keyEye").textContent = i.type === "password" ? "show" : "hide";
+};
+function paintKeyState(){
+  $("#keyState").textContent = S && S.key_set
+      ? `a key is saved: ${S.key_masked} — entering a new one replaces it`
+      : "no key saved yet";
+}
 $("#keySave").onclick = async () => {
   const v = $("#keyInput").value.trim();
-  if(v) S = await api("/api/key", {key:v});
+  $("#keyErr").style.display = "none";
+  if(v){
+    const r = await api("/api/key", {key:v});
+    if(r.bad_key){
+      // the saved key is untouched; say what is wrong and keep the dialog open
+      $("#keyErr").innerHTML = `<b>That is not an API key</b>${esc(r.bad_key)}.`;
+      $("#keyErr").style.display = "block";
+      $("#keyInput").type = "text"; $("#keyEye").textContent = "hide";
+      return;
+    }
+    S = r;
+  }
   S = await api("/api/tier", {usd:tier});
-  $("#keyInput").value = ""; $("#dKey").close(); paint();
+  $("#keyInput").value = ""; $("#keyInput").type = "password"; $("#keyEye").textContent = "show";
+  $("#dKey").close(); paint();
 };
 
 (async () => {
@@ -582,6 +612,7 @@ $("#keySave").onclick = async () => {
              .sort((a,b) => b.score.coding - a.score.coding)[0]?.id
           || S.models.find(m => m.seatable)?.id || null;
   paint();
+  paintKeyState();
   if(!S.key_set) $("#dKey").showModal();
   $("#input").focus();
 })();

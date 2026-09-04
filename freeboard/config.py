@@ -53,9 +53,37 @@ def api_key() -> tuple[str | None, str]:
     return (key, CONFIG) if key else (None, "not set")
 
 
+class BadKey(ValueError):
+    """What was offered is not an API key."""
+
+
+def check_key(key: str) -> str:
+    """Reject anything that is not shaped like an OpenRouter key.
+
+    This accepted `flip to board and two ne` -- a sentence pasted out of a chat window into a
+    password field the user could not read back -- and stored it over whatever was there. Three
+    failures at once: no validation, no way to see what you typed, and a bad value allowed to
+    overwrite a good one. A key is cheap to replace and impossible to recover, so the box that
+    takes it has to be the fussiest thing in the program.
+    """
+    k = (key or "").strip()
+    if not k:
+        raise BadKey("nothing was entered")
+    if any(c.isspace() for c in k):
+        raise BadKey("an API key has no spaces in it - this looks like pasted text")
+    if not k.startswith("sk-or-"):
+        raise BadKey("an OpenRouter key starts with `sk-or-` - this does not. "
+                     "Keys from other providers will not work here")
+    if len(k) < 40:
+        raise BadKey(f"too short ({len(k)} characters) - a real key is around 73")
+    return k
+
+
 def set_api_key(key: str) -> str:
+    """Save a key, or raise. A key that fails the check NEVER replaces a stored one."""
+    k = check_key(key)
     cfg = load()
-    cfg["api_key"] = key.strip()
+    cfg["api_key"] = k
     return save(cfg)
 
 

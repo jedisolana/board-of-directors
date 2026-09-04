@@ -185,7 +185,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json({"error": "bad request"}, 400)
         try:
             if self.path == "/api/key":
-                config.set_api_key(payload["key"])
+                try:
+                    config.set_api_key(payload.get("key", ""))
+                except config.BadKey as e:
+                    # the stored key, if any, is untouched
+                    return self._json({"bad_key": str(e), **_state()})
                 return self._json(_state())
             if self.path == "/api/tier":
                 config.set_tier(float(payload.get("usd", 0)))

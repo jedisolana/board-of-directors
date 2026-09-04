@@ -6,7 +6,7 @@ independent members left -- so that is what most of these check.
 """
 import unittest
 
-from freeboard import board, budget, catalogue, redact, seats
+from freeboard import board, budget, catalogue, config, redact, seats
 from freeboard.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
 
 
@@ -256,6 +256,37 @@ class TwoKindsOfQuestion(unittest.TestCase):
         for q in ("should we rewrite the parser?", "is postgres better than sqlite?",
                   "which model is best for this?", "do we need a queue here?"):
             self.assertFalse(board.looks_like_a_task(q), q)
+
+
+class TheKeyBox(unittest.TestCase):
+    """It accepted `flip to board and two ne` as an API key and stored it over the real one.
+
+    A key is free to replace and impossible to recover, so the box that takes it should be the
+    fussiest thing in the program. It was the loosest.
+    """
+
+    def test_pasted_prose_is_not_a_key(self):
+        with self.assertRaises(config.BadKey):
+            config.check_key("flip to board and two ne")
+
+    def test_another_provider_s_key_is_refused(self):
+        for k in ("sk-ant-" + "a" * 60, "sk-proj-" + "b" * 60, "ghp_" + "c" * 40):
+            with self.subTest(k=k[:8]):
+                with self.assertRaises(config.BadKey):
+                    config.check_key(k)
+
+    def test_empty_and_whitespace_are_refused(self):
+        for k in ("", "   ", "\n\t"):
+            with self.assertRaises(config.BadKey):
+                config.check_key(k)
+
+    def test_a_truncated_key_is_refused(self):
+        with self.assertRaises(config.BadKey):
+            config.check_key("sk-or-v1-abc")
+
+    def test_a_real_shaped_key_passes_and_is_trimmed(self):
+        k = "sk-or-v1-" + "a" * 64
+        self.assertEqual(config.check_key(f"  {k}  "), k)
 
 
 class Catalogue(unittest.TestCase):
