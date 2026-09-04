@@ -40,6 +40,12 @@ First release.
 - Models the catalogue calls free but the API refuses are remembered and not picked again.
 - The daily limit is account-wide: more models buys independence, not headroom. Said plainly.
 
+### Sessions
+- Conversations are saved locally and reopen with the **whole proceeding** — every member's
+  answer, every failure and its reason, the chair — not just the verdict.
+- **Export** a session as markdown for a pull request or a decision log.
+- Renaming the project carries an existing install's key, tier and call count across.
+
 ### Under it
-- Standard library only. 59 tests, no network. Ruff clean. CI on Ubuntu and macOS across
+- Standard library only. 72 tests, no network. Ruff clean. CI on Ubuntu and macOS across
   Python 3.10, 3.12 and 3.13.

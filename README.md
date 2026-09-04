@@ -15,6 +15,10 @@ python3 -m boardofdirectors.cli
 From a clone of this repo, that's the whole thing. No dependencies, no build step, no key
 required to look around — it opens a console in your browser, served from your own machine.
 
+> The two screenshots below the interface are from **real sessions against live free models**,
+> not mock-ups. The interface shot above is driven by the offline stub so it costs nothing to
+> reproduce.
+
 ---
 
 ## Here it is working
@@ -95,6 +99,24 @@ a stray key or a private address lives. A folder with findings is refused, with 
 and the secret masked. There's an explicit *"I've looked at these, send anyway"* tick, because
 example keys in test fixtures are normal — but you tick it every time, and it's never
 remembered.
+
+---
+
+## It keeps what the board said
+
+A board session costs nine to eleven of a fifty-a-day allowance and produces the one thing a
+single model cannot. Throwing that away when you close the tab is the difference between a
+demo and a tool.
+
+Sessions are saved to your machine, listed newest-first in the sidebar, and reopen exactly as
+they happened — **every member's answer, every member that failed and why, and the chair**.
+Not just the verdict: a session that stored only the conclusion would reopen looking
+unanimous, which is precisely the dishonesty the board exists to prevent. A week later you
+must still be able to see the vote was 3–1 and that two members were rate limited.
+
+**Export** writes the whole proceeding as markdown you can paste into a pull request, an issue
+or a decision log — with the dissent and the missing members in it. A board's output is only
+worth keeping if the disagreement comes with it.
 
 ---
 
@@ -224,7 +246,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-59 tests, no network, no dependencies. Most of them are failure paths, because a board that
+72 tests, no network, no dependencies. Most of them are failure paths, because a board that
 works when every model answers is the easy half. They cover what happens when a member is
 throttled, when the seam sees a key, when the pool has no independent members left, when two
 consoles write the counter at once — and, after being caught by them the hard way, whether the
