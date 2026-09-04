@@ -593,7 +593,7 @@ class SavedSessions(unittest.TestCase):
         sid = sessions.new_id()
         sessions.save(sid, self.TURNS)
         created = sessions.load(sid)["created"]
-        sessions.save(sid, self.TURNS + [{"role": "user", "content": "and backups?"}])
+        sessions.save(sid, [*self.TURNS, {"role": "user", "content": "and backups?"}])
         after = sessions.load(sid)
         self.assertEqual(after["created"], created)
         self.assertGreaterEqual(after["updated"], created)
