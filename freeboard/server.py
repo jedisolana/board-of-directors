@@ -29,6 +29,18 @@ WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 _CACHE: dict = {}
 
 
+def build_stamp() -> str:
+    """A short id for the page currently on disk, so "which version are you looking at?" has
+    an answer. Without one, a fixed bug and a cached copy of the bug are indistinguishable
+    from either side of the screen -- which is exactly how an hour went missing."""
+    import hashlib
+    try:
+        with open(os.path.join(WEB, "index.html"), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:7]
+    except OSError:
+        return "unknown"
+
+
 def _models(refresh: bool = False) -> list[dict]:
     if refresh or "models" not in _CACHE:
         c = catalogue.load(live=True)
@@ -60,6 +72,7 @@ def _state() -> dict:
                     "seatable": any(x["id"] == m["id"] for x in seatable)} for m in models],
         "board": saved,
         "tier_source": config.tier_source(),
+        "build": build_stamp(),
         "usage": {"calls": st.calls, "failed": st.failed, "allowance": st.allowance,
                   "remaining": st.remaining, "measured": st.measured,
                   "resets_in": st.resets_in, "qualified": st.qualified,
@@ -161,6 +174,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass                                # the console is the UI; the terminal stays quiet
 
+    def _no_cache(self):
+        """This page changes every few minutes. A browser holding yesterday's copy makes a
+        fixed bug look unfixed -- the user reloads, sees the same failure, and reports it
+        again. `Last-Modified` alone is not enough: with no Cache-Control, browsers apply
+        heuristic caching and may serve from memory without ever revalidating."""
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+
+    def end_headers(self):
+        self._no_cache()
+        super().end_headers()
+
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode()
         self.send_response(code)
@@ -237,7 +263,7 @@ def serve(port: int = 8420, open_browser: bool = True) -> None:
     _models()
     url = f"http://127.0.0.1:{port}/"
     with _Server(("127.0.0.1", port), Handler) as httpd:
-        print(f"\n  freeboard console -> {url}")
+        print(f"\n  freeboard console -> {url}   (build {build_stamp()})")
         print("  local only: 127.0.0.1, your key stays on this machine.")
         print("  ctrl-c to stop.\n")
         if open_browser:

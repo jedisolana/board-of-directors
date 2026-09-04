@@ -132,7 +132,9 @@
 <body>
 
 <header>
-  <div class="brand">freeboard <span>console</span></div>
+  <div class="brand">freeboard <span>console</span><span id="build"
+       style="font:10px var(--mono);color:var(--dimmer);margin-left:7px"
+       title="which copy of the page you are looking at"></span></div>
   <div class="stat"><i>key</i><b id="hKey">-</b></div>
   <div class="stat"><i>today</i><b id="hUse">-</b><div class="gauge"><div id="hBar"></div></div></div>
   <div class="stat"><i>resets in</i><b id="hReset">-</b></div>
@@ -283,6 +285,7 @@ function paintHeader(){
   $("#hBar").style.width = pct + "%";
   $("#hBar").style.background = pct > 40 ? "var(--good)" : pct > 15 ? "var(--warn)" : "var(--bad)";
   $("#hReset").textContent = u.resets_in;
+  $("#build").textContent = S.build || "";
   const c = S.catalogue;
   $("#aMeta").textContent = `${c.seatable} usable · ${c.families.length} families · ${c.origin}`;
 }
