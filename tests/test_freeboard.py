@@ -330,6 +330,21 @@ class ThePage(unittest.TestCase):
         used = set(re.findall(r'\$\("#([A-Za-z0-9_-]+)"\)', h))
         self.assertEqual(sorted(used - ids), [], "script references elements that do not exist")
 
+    def test_a_closed_dialog_is_actually_hidden(self):
+        """close() cleared `open` while the CSS kept painting the box.
+
+        The probe that "proved" the dialog closed asked for `.open`, which was false, and
+        never asked whether anything was still on the screen. Styling `dialog` unconditionally
+        with `display:flex` overrides the browser's own `display:none` for the closed state,
+        so both dialogs were permanently visible. Measure the thing the user sees, not the
+        flag that is supposed to cause it.
+        """
+        h = self.page()
+        self.assertIn("dialog:not([open])", h,
+                      "nothing hides a closed dialog")
+        self.assertNotRegex(h, r"(?m)^\s*dialog\{[^}]*display:\s*flex",
+                            "bare `dialog{display:flex}` paints the closed state too")
+
     def test_tags_are_balanced(self):
         """A half-applied edit left a stray closing tag inside the dialog."""
         h = self.page()

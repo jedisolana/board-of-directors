@@ -99,9 +99,14 @@
            border-radius:8px;padding:10px 12px;font:inherit;min-height:46px;max-height:190px}
   textarea:focus{outline:none;border-color:var(--accent)}
 
-  dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;
-         padding:22px;max-width:560px;width:92%;max-height:86vh;
+  /* A dialog element is hidden by the browser's own `display:none` while closed. Setting
+     `display:flex` here overrode that unconditionally, so both dialogs were ALWAYS painted:
+     close() dutifully cleared the `open` attribute and the box stayed on the screen. The
+     display rule has to apply only while it is open, and closed has to win. */
+  dialog[open]{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+         border-radius:12px;padding:22px;max-width:560px;width:92%;max-height:86vh;
          display:flex;flex-direction:column;overflow:hidden}
+  dialog:not([open]){display:none!important}
   dialog > *{flex:none}
   dialog .grow{flex:1;overflow-y:auto;min-height:0}
   dialog .actions{display:flex;gap:9px;justify-content:flex-end;padding-top:14px;
