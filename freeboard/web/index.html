@@ -41,8 +41,8 @@
   .asidehead h2{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
   .asidehead small{color:var(--dimmer);font-size:11px}
   .sorts{display:flex;gap:4px;padding:7px 12px 8px;border-bottom:1px solid var(--line)}
-  .sort{padding:3px 9px;border-radius:14px;border:1px solid var(--line);background:none;
-        color:var(--dimmer);font-size:11px;cursor:pointer}
+  .sort{flex:1;padding:4px 9px;border-radius:14px;border:1px solid var(--line);background:none;
+        color:var(--dimmer);font-size:11.5px;cursor:pointer}
   .sort.on{background:var(--panel2);color:var(--ink);border-color:var(--dimmer)}
   .score{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto;
          padding-left:8px;flex:none;text-align:right}
@@ -126,10 +126,8 @@
       <h2>free models</h2><small id="aMeta"></small>
     </div>
     <div class="sorts">
-      <button class="sort on" data-k="coding">coding</button>
-      <button class="sort" data-k="thinking">thinking</button>
-      <button class="sort" data-k="agentic">agentic</button>
-      <button class="sort" data-k="size">size</button>
+      <button class="sort on" data-k="coding">best at coding</button>
+      <button class="sort" data-k="thinking">best at thinking</button>
     </div>
     <div class="models" id="models"></div>
     <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
@@ -198,6 +196,15 @@ function pretty(m){
                  : {vendor: (m && m.family) || "", name: clean};
 }
 const byId = id => (S && S.models.find(m => m.id === id)) || {id};
+
+// The tabs show two, but all three indices are on the row's tooltip -- agentic is the one
+// that says how well a model works inside a harness, and it is worth a hover.
+function scoreTip(m){
+  const s = m.score || {};
+  const bit = (k,l) => `${l}: ${s[k] == null ? "not measured" : s[k]}`;
+  return `Artificial Analysis - ${bit("coding","coding")} · ${bit("thinking","thinking")} · `
+       + `${bit("agentic","agentic (tool use)")}`;
+}
 const label = id => { const p = pretty(byId(id)); return p.name || id; };
 const full = id => { const p = pretty(byId(id)); return p.vendor ? `${p.vendor} ${p.name}` : (p.name || id); };
 
@@ -246,8 +253,7 @@ function paintModels(){
         <div class="id">${esc(p.name)}${m.json?'<span class="tag">json</span>':''}</div>
         <div class="meta">${esc(p.vendor)} · reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}</div>
       </div>
-      <div class="score ${sc(m)==null?"none":""}" title="${sortKey==="size"?"context window"
-          :"Artificial Analysis "+sortKey+" index"}">
+      <div class="score ${sc(m)==null?"none":""}" title="${scoreTip(m)}">
         <b>${sortKey==="size" ? k(m.context_length) : (sc(m)==null ? "—" : sc(m))}</b>
         ${sortKey==="size" ? "" : `<span>${esc(sortKey)}</span>`}
       </div>`;
