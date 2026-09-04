@@ -269,20 +269,37 @@ class TheKeyBox(unittest.TestCase):
         with self.assertRaises(config.BadKey):
             config.check_key("flip to board and two ne")
 
-    def test_another_provider_s_key_is_refused(self):
-        for k in ("sk-ant-" + "a" * 60, "sk-proj-" + "b" * 60, "ghp_" + "c" * 40):
+    def test_a_shape_we_guessed_at_must_not_refuse_a_real_key(self):
+        """The first version refused anything not `sk-or-` and under 40 characters.
+
+        Both numbers came from one example; OpenRouter documents no key format. The guess
+        then rejected a real key. A shape check is a guess about someone else's format, so
+        it may WARN and must never refuse.
+        """
+        for k in ("ork_" + "a" * 60, "sk-or-short", "sk-or-v1-abc"):
+            with self.subTest(k=k[:10]):
+                self.assertEqual(config.check_key(k), k)      # accepted
+                self.assertTrue(config.looks_unusual(k))       # but flagged
+
+    def test_another_provider_s_key_is_warned_about_not_refused(self):
+        for k in ("sk-ant-" + "a" * 60, "ghp_" + "c" * 40):
             with self.subTest(k=k[:8]):
-                with self.assertRaises(config.BadKey):
-                    config.check_key(k)
+                config.check_key(k)
+                self.assertIn("different service", config.looks_unusual(k))
 
     def test_empty_and_whitespace_are_refused(self):
         for k in ("", "   ", "\n\t"):
             with self.assertRaises(config.BadKey):
                 config.check_key(k)
 
-    def test_a_truncated_key_is_refused(self):
-        with self.assertRaises(config.BadKey):
-            config.check_key("sk-or-v1-abc")
+    def test_whitespace_anywhere_is_refused(self):
+        for k in ("sk-or-v1 abc", "sk-or-v1-abc\ndef", "sk or v1"):
+            with self.subTest(k=k[:12]):
+                with self.assertRaises(config.BadKey):
+                    config.check_key(k)
+
+    def test_a_normal_key_draws_no_warning(self):
+        self.assertEqual(config.looks_unusual("sk-or-v1-" + "a" * 64), "")
 
     def test_a_real_shaped_key_passes_and_is_trimmed(self):
         k = "sk-or-v1-" + "a" * 64

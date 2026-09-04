@@ -185,12 +185,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json({"error": "bad request"}, 400)
         try:
             if self.path == "/api/key":
+                raw = payload.get("key", "")
                 try:
-                    config.set_api_key(payload.get("key", ""))
+                    k = config.check_key(raw)
                 except config.BadKey as e:
-                    # the stored key, if any, is untouched
-                    return self._json({"bad_key": str(e), **_state()})
-                return self._json(_state())
+                    return self._json({"bad_key": str(e), **_state()})   # stored key untouched
+                ok, why, acct = config.verify(k)
+                if not ok and not payload.get("save_unverified"):
+                    # Not saved, and the reason is OpenRouter's, not ours. Offer to save
+                    # anyway, because "could not reach OpenRouter" must not block a good key.
+                    return self._json({"bad_key": why, "warn": config.looks_unusual(k),
+                                       "offer_save": True, **_state()})
+                config.set_api_key(k)
+                st = _state()
+                st["verified"] = ok
+                st["why"] = why
+                st["account"] = acct
+                return self._json(st)
             if self.path == "/api/tier":
                 config.set_tier(float(payload.get("usd", 0)))
                 return self._json(_state())

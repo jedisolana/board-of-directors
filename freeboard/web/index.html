@@ -216,7 +216,8 @@
   </div>
   <div id="keyState" style="font-size:11.5px;color:var(--dimmer);margin:-6px 0 12px"></div>
   <div id="keyErr" class="note bad" style="display:none;margin-bottom:12px"></div>
-  <p style="margin:0 0 14px">Has this account ever had <b>$10+</b> of credits put in?
+  <p style="margin:0 0 14px">Saving checks the key against OpenRouter first, so you find out
+     here rather than on your first question.<br><br>Has this account ever had <b>$10+</b> of credits put in?
      That is what decides 50 vs 1000 requests a day, and nothing can read it from the API.</p>
   <div class="modes" style="margin-bottom:16px">
     <button class="mode on" id="tNo">no &mdash; 50/day</button>
@@ -471,7 +472,7 @@ $("#bRefresh").onclick = async () => {
   note("Model list refreshed", `${S.catalogue.free} free models right now, ${S.catalogue.origin}.`, "warn");
 };
 // ---- audit code: a loader, not a harness. You pick the folder; the model never chooses.
-let scanned = null, sendAnyway = false;
+let scanned = null, sendAnyway = false, saveAnyway = false;
 
 async function loadProjects(){
   const r = await (await fetch("/api/projects")).json();
@@ -569,7 +570,7 @@ $("#codePath").onkeydown = e => { if(e.key === "Enter"){ e.preventDefault(); doS
 $("#codeOne").onclick = () => sendCode(false);
 $("#codeBoard").onclick = () => sendCode(true);
 
-$("#bKey").onclick = () => { paintKeyState(); $("#keyErr").style.display="none";
+$("#bKey").onclick = () => { paintKeyState(); saveAnyway = false; $("#keyErr").style.display="none";
                              $("#dKey").showModal(); };
 $("#keyCancel").onclick = () => $("#dKey").close();
 $("#tNo").onclick  = () => { tier = 0;  $("#tNo").classList.add("on");  $("#tYes").classList.remove("on"); };
@@ -588,15 +589,26 @@ $("#keySave").onclick = async () => {
   const v = $("#keyInput").value.trim();
   $("#keyErr").style.display = "none";
   if(v){
-    const r = await api("/api/key", {key:v});
+    $("#keySave").textContent = "checking with OpenRouter...";
+    const r = await api("/api/key", {key:v, save_unverified: saveAnyway});
+    $("#keySave").textContent = "save";
     if(r.bad_key){
-      // the saved key is untouched; say what is wrong and keep the dialog open
-      $("#keyErr").innerHTML = `<b>That is not an API key</b>${esc(r.bad_key)}.`;
+      // Nothing was saved and the stored key is untouched. The reason is OpenRouter's where
+      // it can be - our own shape guesses are only ever shown as a hint underneath.
+      $("#keyErr").innerHTML = `<b>Not saved</b>${esc(r.bad_key)}.`
+        + (r.warn ? `<br><span style="opacity:.8">${esc(r.warn)}</span>` : "")
+        + (r.offer_save ? `<label style="display:flex;gap:8px;align-items:flex-start;
+             margin-top:10px;cursor:pointer;text-align:left">
+             <input type="checkbox" id="anywayKey" style="margin:2px 0 0;flex:none">
+             <span>Save it anyway — I am sure it is right.</span></label>` : "");
       $("#keyErr").style.display = "block";
       $("#keyInput").type = "text"; $("#keyEye").textContent = "hide";
+      const box = $("#anywayKey");
+      if(box) box.onchange = e => { saveAnyway = e.target.checked; };
       return;
     }
-    S = r;
+    S = r; saveAnyway = false;
+    if(r.verified) note("Key accepted", "OpenRouter checked it and it works.", "warn");
   }
   S = await api("/api/tier", {usd:tier});
   $("#keyInput").value = ""; $("#keyInput").type = "password"; $("#keyEye").textContent = "show";

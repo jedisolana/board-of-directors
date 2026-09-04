@@ -58,25 +58,59 @@ class BadKey(ValueError):
 
 
 def check_key(key: str) -> str:
-    """Reject anything that is not shaped like an OpenRouter key.
+    """Refuse only what CANNOT be a key. OpenRouter decides the rest.
 
-    This accepted `flip to board and two ne` -- a sentence pasted out of a chat window into a
-    password field the user could not read back -- and stored it over whatever was there. Three
-    failures at once: no validation, no way to see what you typed, and a bad value allowed to
-    overwrite a good one. A key is cheap to replace and impossible to recover, so the box that
-    takes it has to be the fussiest thing in the program.
+    The first version of this refused anything not starting with `sk-or-` and under 40
+    characters. Both numbers were inferred from a single example -- OpenRouter documents no key
+    format anywhere -- and a guess written as a rule then rejected a real key. A shape check
+    can only ever be a guess about someone else's format; the service that issues the key is
+    the only thing that knows, so `verify` asks it.
+
+    What survives here is what no key can be: nothing, or something with whitespace in it. A
+    sentence pasted from a chat window has spaces. A key does not.
     """
     k = (key or "").strip()
     if not k:
         raise BadKey("nothing was entered")
     if any(c.isspace() for c in k):
-        raise BadKey("an API key has no spaces in it - this looks like pasted text")
-    if not k.startswith("sk-or-"):
-        raise BadKey("an OpenRouter key starts with `sk-or-` - this does not. "
-                     "Keys from other providers will not work here")
-    if len(k) < 40:
-        raise BadKey(f"too short ({len(k)} characters) - a real key is around 73")
+        raise BadKey("this has spaces in it, so it cannot be a key - it looks like pasted text")
     return k
+
+
+def looks_unusual(key: str) -> str:
+    """A WARNING, never a refusal. Says what is odd without pretending to know the format."""
+    k = (key or "").strip()
+    if k.startswith(("sk-ant-", "sk-proj-", "ghp_", "AIza", "xox")):
+        return "that looks like a key for a different service - it will not work here"
+    if not k.startswith("sk-or-"):
+        return "OpenRouter keys usually start with `sk-or-`, and this does not"
+    if len(k) < 40:
+        return f"that is short for a key ({len(k)} characters) - check nothing was cut off"
+    return ""
+
+
+def verify(key: str, timeout: float = 15.0) -> tuple[bool, str, dict]:
+    """Ask OpenRouter whether this key works. The only real validation there is.
+
+    Returns (accepted, what to tell the user, whatever the service said about the account).
+    A network failure is NOT a rejection -- it is unknown, and saying "bad key" when the wifi
+    is down would send someone off to regenerate a perfectly good key.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request("https://openrouter.ai/api/v1/key",
+                                 headers={"Authorization": f"Bearer {key.strip()}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = (_json.load(r) or {}).get("data") or {}
+        return True, "OpenRouter accepted this key", data
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return False, "OpenRouter rejected this key - check it was copied whole", {}
+        return False, f"OpenRouter answered {e.code} - the key may still be fine", {}
+    except Exception as e:
+        return False, f"could not reach OpenRouter ({type(e).__name__}) - key not checked", {}
 
 
 def set_api_key(key: str) -> str:
