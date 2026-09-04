@@ -77,6 +77,27 @@
   .turn.you .bubble{background:var(--panel2);border-color:transparent}
   .turn.you .who{color:var(--accent)}
 
+  .tally{display:flex;align-items:center;gap:12px;margin-bottom:11px;padding:8px 12px;
+         background:var(--panel);border:1px solid var(--line);border-radius:8px;font-size:12.5px}
+  .seats{display:flex;gap:5px}
+  .seat{width:11px;height:11px;border-radius:50%;display:inline-block;background:var(--dimmer)}
+  .seat.v-for{background:var(--good)}
+  .seat.v-against{background:var(--bad)}
+  .seat.v-depends{background:var(--warn)}
+  .seat.v-unclear{background:var(--dimmer);box-shadow:inset 0 0 0 1px var(--line)}
+  .counts{color:var(--dim)} .counts b{color:var(--ink)}
+  .verdict-word{margin-left:auto;font-weight:650;letter-spacing:.02em;text-transform:uppercase;
+                font-size:11px}
+  .verdict-word.yes{color:var(--good)} .verdict-word.no{color:var(--bad)}
+  .verdict-word.tied{color:var(--warn)}
+  .member .vote{float:right;font-size:9px;letter-spacing:.06em;padding:1px 5px;border-radius:3px;
+                background:var(--panel2);color:var(--dim)}
+  .member.v-for{border-left:2px solid var(--good)}
+  .member.v-against{border-left:2px solid var(--bad)}
+  .member.v-depends{border-left:2px solid var(--warn)}
+  .member.v-unclear{border-left:2px solid var(--dimmer)}
+  .member.v-for .vote{color:var(--good)} .member.v-against .vote{color:var(--bad)}
+  .member.v-depends .vote{color:var(--warn)}
   .members{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-bottom:11px}
   .member{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
   .member .lab{font-family:var(--mono);font-size:10.5px;color:var(--accent);margin-bottom:2px}
@@ -415,9 +436,29 @@ function addBoard(r){
   d.className = "turn";
   let h = `<div class="who">board · ${esc(r.kind||"decide")} · ${r.answers.length} answered · chaired by `
         + `<span title="${esc(r.chair)}">${esc(label(r.chair))}</span> · ${r.calls} requests</div>`;
+  // The tally, shown. A board that cannot show its own vote is a discussion. Read from what
+  // members DECLARED - a member who did not declare one is counted as undeclared, never
+  // guessed at from their wording.
+  const t = r.tally;
+  if(t && (r.kind||"decide") !== "make"){
+    const seats = r.answers.map(a =>
+      `<span class="seat v-${(a.vote||"UNCLEAR").toLowerCase()}" title="${esc(a.model)} voted ${esc(a.vote||"UNCLEAR")}"></span>`).join("");
+    const bits = [];
+    if(t.FOR) bits.push(`<b>${t.FOR}</b> for`);
+    if(t.AGAINST) bits.push(`<b>${t.AGAINST}</b> against`);
+    if(t.DEPENDS) bits.push(`<b>${t.DEPENDS}</b> conditional`);
+    if(t.UNCLEAR) bits.push(`<b>${t.UNCLEAR}</b> undeclared`);
+    const verdict = t.decided === 0 ? "no votes declared"
+                  : t.split ? "the board is split"
+                  : (t.carried ? "carried" : "not carried");
+    h += `<div class="tally"><span class="seats">${seats}</span>`
+       + `<span class="counts">${bits.join(" · ")}</span>`
+       + `<span class="verdict-word ${t.split||t.decided===0?"tied":(t.carried?"yes":"no")}">${verdict}</span></div>`;
+  }
   h += `<div class="members">` + r.answers.map(a =>
-    `<div class="member" title="${esc(a.model)}"><div class="lab">${esc(a.label)}</div>
-     <div class="mid">${esc(full(a.model))}</div><p>${esc(a.text)}</p></div>`).join("") + `</div>`;
+    `<div class="member v-${(a.vote||"UNCLEAR").toLowerCase()}" title="${esc(a.model)}">
+       <div class="lab">${esc(a.label)}<span class="vote">${esc(a.vote||"UNCLEAR")}</span></div>
+       <div class="mid">${esc(full(a.model))}</div><p>${esc(a.text)}</p></div>`).join("") + `</div>`;
   if(r.failures.length)
     h += `<div class="note warn"><b>${r.failures.length} member(s) did not answer &mdash; not counted as agreement</b>
           <ul>${r.failures.map(f=>`<li><b>${esc(label(f.model))}</b> &mdash; ${esc(f.reason)}</li>`).join("")}</ul></div>`;

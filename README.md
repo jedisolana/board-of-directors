@@ -102,6 +102,26 @@ remembered.
 
 ---
 
+## You can see the vote
+
+![The vote](docs/fig-vote.png)
+
+Every member declares a position — **for**, **against**, or **conditional** — on its own line,
+and the board counts them. One dot per seat, the count in words, and whether the motion
+**carried**.
+
+The tally is **read from what members declared, never inferred from their prose.** A member
+who did not state a position is recorded as *undeclared* and shown as such. Guessing a vote
+from someone's wording would put words in their mouth and then count them — the same failure
+as counting a silent member as agreement, one step further along.
+
+The chair is handed the count rather than asked to work it out from five essays, and is told
+not to attribute a vote to a member who never declared one.
+
+A tie is reported as **split**. Nothing here rounds a disagreement into a decision.
+
+---
+
 ## It keeps what the board said
 
 A board session costs nine to eleven of a fifty-a-day allowance and produces the one thing a
@@ -246,7 +266,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-71 tests, no network, no dependencies. Most of them are failure paths, because a board that
+85 tests, no network, no dependencies. Most of them are failure paths, because a board that
 works when every model answers is the easy half. They cover what happens when a member is
 throttled, when the seam sees a key, when the pool has no independent members left, when two
 consoles write the counter at once — and, after being caught by them the hard way, whether the

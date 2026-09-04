@@ -125,8 +125,15 @@ class OfflineTransport(Transport):
         if mid in self.script:
             return Answer(mid, self.script[mid])
         seed = sum(ord(c) for c in mid)
-        lean = ["yes", "no", "yes, with conditions"][seed % 3]
-        return Answer(mid, f"[{model.get('family', '?')}] {lean} - reasoning stub #{seed % 97}")
+        lean, vote = [("yes", "FOR"), ("no", "AGAINST"),
+                      ("yes, with conditions", "DEPENDS")][seed % 3]
+        body = f"[{model.get('family', '?')}] {lean} - reasoning stub #{seed % 97}"
+        # A stub that never declares a vote would make the tally look permanently broken,
+        # and the failure mode it is meant to reveal - a member who did not vote - would be
+        # indistinguishable from the stub simply not bothering.
+        if "Rank them" not in prompt and "chair of a board" not in prompt:
+            body += f"\n\nVOTE: {vote}"
+        return Answer(mid, body)
 
 
 class OpenRouterTransport(Transport):

@@ -20,6 +20,7 @@ NO QUORUM rather than a confident-looking answer from whoever got through.
 """
 from __future__ import annotations
 
+import re
 import string
 from dataclasses import dataclass, field
 
@@ -39,8 +40,44 @@ from .transport import Answer, Failure, OfflineTransport, Transport
 ANSWER_PROMPT = (
     "You are one member of an independent board. Answer the question on your own judgement.\n"
     "Be specific and brief: your position, then the single strongest reason for it, then the "
-    "one thing that would change your mind.\n\nQUESTION:\n{q}"
+    "one thing that would change your mind.\n\n"
+    "End your answer with a single line, exactly:\n"
+    "VOTE: FOR      (you support the proposal)\n"
+    "VOTE: AGAINST  (you oppose it)\n"
+    "VOTE: DEPENDS  (you cannot support it as put, without a condition being met)\n\n"
+    "QUESTION:\n{q}"
 )
+
+# A board that cannot show its own vote is a discussion. The tally is READ from what each
+# member declared, never inferred from their prose: a member who did not state a vote is
+# recorded UNCLEAR and shown as such. Guessing a position from wording would put words in a
+# member's mouth and then count them - the same failure as counting a silent member as
+# agreement, one step further along.
+_VOTE = re.compile(r"^\s*(?:\*\*)?VOTE(?:\*\*)?\s*[:\-]\s*(?:\*\*)?\s*"
+                   r"(FOR|AGAINST|DEPENDS)\b", re.I | re.M)
+VOTES = ("FOR", "AGAINST", "DEPENDS", "UNCLEAR")
+
+
+def read_vote(text: str) -> str:
+    """The vote a member DECLARED, or UNCLEAR. Never inferred."""
+    m = _VOTE.search(text or "")
+    return m.group(1).upper() if m else "UNCLEAR"
+
+
+def strip_vote(text: str) -> str:
+    """The reasoning without the marker line, which the UI shows as a badge instead."""
+    return _VOTE.sub("", text or "").rstrip()
+
+
+def tally(answers: list) -> dict:
+    """The count, plus whether it is even meaningful."""
+    counts = dict.fromkeys(VOTES, 0)
+    for a in answers:
+        counts[read_vote(getattr(a, "text", "") or "")] += 1
+    decided = counts["FOR"] + counts["AGAINST"]
+    return {**counts, "decided": decided,
+            "carried": counts["FOR"] > counts["AGAINST"] if decided else None,
+            "split": counts["FOR"] == counts["AGAINST"] and decided > 0}
 
 MAKE_PROMPT = (
     "You are one of several people given the same task, working independently. Do the task.\n"
@@ -79,7 +116,10 @@ MAKE_CHAIR_PROMPT = (
 )
 
 CHAIR_PROMPT = (
-    "You are the chair of a board. You did not vote. Below are the members' independent "
+    "You are the chair of a board. You did not vote.\n"
+    "The members' declared votes have already been counted for you: {tally}. Use that count; "
+    "do not recount it from their prose, and do not attribute a vote to a member who did not "
+    "declare one.\n Below are the members' independent "
     "answers and their blind rankings of each other.\nWrite the board's decision: the "
     "position, the vote as you read it, the strongest dissent and why it did not carry, and "
     "what would change the decision.\nDo not invent agreement that is not there. If the board "
@@ -97,6 +137,7 @@ class Session:
     failures: list[Failure] = field(default_factory=list)
     rankings: list[Answer] = field(default_factory=list)
     chair_failures: list[dict] = field(default_factory=list)
+    tally: dict = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)   # label -> model id
     kind: str = "decide"
     decision: str | None = None
@@ -118,9 +159,15 @@ class Session:
         out.append("")
         for a in self.answers:
             label = next((k for k, v in self.labels.items() if v == a.model), "?")
-            out.append(f"  [{label}] {a.model}")
-            for line in a.text.splitlines():
+            out.append(f"  [{label}] {a.model}   VOTE: {read_vote(a.text)}")
+            for line in strip_vote(a.text).splitlines():
                 out.append(f"        {line}")
+            out.append("")
+        if self.tally and self.kind != "make":
+            t = self.tally
+            out.append(f"  VOTE: {t['FOR']} for · {t['AGAINST']} against · "
+                       f"{t['DEPENDS']} conditional"
+                       + (f" · {t['UNCLEAR']} undeclared" if t["UNCLEAR"] else ""))
             out.append("")
         if self.failures:
             out.append(f"  DID NOT VOTE ({len(self.failures)}) -- not counted as agreement:")
@@ -218,8 +265,13 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
 
     # 3. the chair
     ranked = "\n\n".join(f"--- ranking by a member ---\n{r.text}" for r in s.rankings) or "(none)"
-    cp = (MAKE_CHAIR_PROMPT if make else CHAIR_PROMPT).format(
-        q=question, answers=blind_text, rankings=ranked)
+    t = tally(s.answers)
+    s.tally = t
+    tally_line = (f"{t['FOR']} for, {t['AGAINST']} against, {t['DEPENDS']} conditional"
+                  + (f", {t['UNCLEAR']} did not declare a vote" if t["UNCLEAR"] else ""))
+    cp = (MAKE_CHAIR_PROMPT.format(q=question, answers=blind_text, rankings=ranked) if make
+          else CHAIR_PROMPT.format(q=question, answers=blind_text, rankings=ranked,
+                                   tally=tally_line))
     tried, reason = [], ""
     while True:
         r = transport.ask(chair_model, [*prior, {"role": "user", "content": cp}])

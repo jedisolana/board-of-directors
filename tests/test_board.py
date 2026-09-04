@@ -544,6 +544,75 @@ class TheRename(unittest.TestCase):
             shutil.rmtree(new, ignore_errors=True)
 
 
+class TheVote(unittest.TestCase):
+    """A board that cannot show its own vote is a discussion.
+
+    The tally is READ from what each member declared. Inferring a position from wording would
+    put words in a member's mouth and then count them - the same failure as counting a silent
+    member as agreement, one step further along.
+    """
+
+    def test_a_declared_vote_is_read_in_the_forms_models_actually_write(self):
+        for text, expect in (("reasons\nVOTE: FOR", "FOR"),
+                             ("**VOTE:** AGAINST", "AGAINST"),
+                             ("vote: depends", "DEPENDS"),
+                             ("VOTE : FOR ", "FOR"),
+                             ("VOTE:**FOR**", "FOR")):
+            with self.subTest(text=text):
+                self.assertEqual(board.read_vote(text), expect)
+
+    def test_an_undeclared_vote_is_unclear_not_guessed(self):
+        for text in ("I strongly support this proposal.",
+                     "Absolutely not, this is a terrible idea.",
+                     "", "yes"):
+            with self.subTest(text=text[:24]):
+                self.assertEqual(board.read_vote(text), "UNCLEAR")
+
+    def test_the_marker_is_stripped_from_the_reasoning(self):
+        t = "Start with a monolith.\n\nVOTE: AGAINST"
+        self.assertEqual(board.strip_vote(t), "Start with a monolith.")
+        self.assertNotIn("VOTE", board.strip_vote(t))
+
+    def test_the_tally_counts_and_calls_it(self):
+        class A:
+            def __init__(self, t):
+                self.text = t
+        t = board.tally([A("a\nVOTE: FOR"), A("b\nVOTE: FOR"),
+                         A("c\nVOTE: AGAINST"), A("d\nVOTE: DEPENDS"), A("e no marker")])
+        self.assertEqual((t["FOR"], t["AGAINST"], t["DEPENDS"], t["UNCLEAR"]), (2, 1, 1, 1))
+        self.assertEqual(t["decided"], 3)
+        self.assertTrue(t["carried"])
+        self.assertFalse(t["split"])
+
+    def test_a_tie_is_reported_as_split_not_carried(self):
+        class A:
+            def __init__(self, t):
+                self.text = t
+        t = board.tally([A("VOTE: FOR"), A("VOTE: AGAINST")])
+        self.assertTrue(t["split"])
+        self.assertFalse(t["carried"])
+
+    def test_no_declared_votes_is_not_a_verdict(self):
+        class A:
+            def __init__(self, t):
+                self.text = t
+        t = board.tally([A("no marker"), A("none here")])
+        self.assertEqual(t["decided"], 0)
+        self.assertIsNone(t["carried"])
+
+    def test_a_session_carries_the_tally(self):
+        s = board.ask("Should we?", transport=OfflineTransport(), models=POOL, size=4)
+        self.assertTrue(s.tally)
+        self.assertIn("VOTE:", s.report())
+
+    def test_the_chair_is_handed_the_count_not_asked_to_recount_prose(self):
+        t = OfflineTransport()
+        board.ask("Should we?", transport=t, models=POOL, size=4)
+        chair_prompt = t.calls[-1][1]
+        self.assertIn("already been counted for you", chair_prompt)
+        self.assertRegex(chair_prompt, r"\d+ for, \d+ against")
+
+
 class TwoKindsOf429(unittest.TestCase):
     """The counter read 58/50 while every other model on the board answered perfectly.
 

@@ -143,8 +143,19 @@ def as_markdown(doc: dict) -> str:
             continue
         out += [f"**Board · {b.get('kind', 'decide')} · {len(b.get('answers', []))} answered "
                 f"· chaired by {b.get('chair', '?')} · {b.get('calls', 0)} requests**", ""]
+        t = b.get("tally") or {}
+        if t and b.get("kind") != "make":
+            bits = [f"**{t.get(k, 0)}** {w}" for k, w in
+                    (("FOR", "for"), ("AGAINST", "against"),
+                     ("DEPENDS", "conditional"), ("UNCLEAR", "undeclared")) if t.get(k)]
+            word = ("no votes declared" if not t.get("decided") else
+                    "the board is split" if t.get("split") else
+                    "carried" if t.get("carried") else "not carried")
+            out += ["> **Vote:** " + " · ".join(bits) + f" — _{word}_", ""]
         for a in b.get("answers", []):
-            out += [f"### {a.get('label', '?')} — {a.get('model', '?')}", "",
+            v = a.get("vote")
+            head = f"### {a.get('label', '?')} — {a.get('model', '?')}"
+            out += [head + (f"  ·  **{v}**" if v else ""), "",
                     (a.get("text") or "").strip(), ""]
         if b.get("failures"):
             out += ["### Did not answer — not counted as agreement", ""]
