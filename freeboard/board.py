@@ -111,7 +111,29 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
         size: int = 5, minimum: int = 3, peer_review: bool = True,
         live_catalogue: bool = True) -> Session:
     """Run one board session. Raises `redact.Refused` before anything leaves the machine."""
+    return ask_in_context(question, prior=None, transport=transport, models=models, size=size,
+                          minimum=minimum, peer_review=peer_review,
+                          live_catalogue=live_catalogue)
+
+
+def ask_in_context(question: str, *, prior: list[dict] | None = None,
+                   transport: Transport | None = None, models: list[dict] | None = None,
+                   size: int = 5, minimum: int = 3, peer_review: bool = True,
+                   live_catalogue: bool = True) -> Session:
+    """A board session that picks up an existing conversation.
+
+    This is what makes the mode switch worth having. You talk to ONE model for a while at one
+    request a turn; when a question deserves more, the same thread convenes the board, and
+    every member reads the conversation so far before answering. The chair's verdict is what
+    goes back into the thread, so switching back to a single model continues from the board's
+    decision rather than from a hole in the history.
+
+    Only the chair's verdict enters the history, never the five raw answers. Otherwise every
+    board turn would multiply what each later turn has to re-read, and a long conversation
+    would price itself out of the free tier.
+    """
     redact.check(question)
+    prior = prior or []
 
     if models is None:
         models = catalogue.load(live=live_catalogue)["models"]
@@ -122,10 +144,10 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
     chair_model = seats.chair(models, members)
     s = Session(question=question, members=members, chair_model=chair_model)
 
-    # 1. independent answers
+    # 1. independent answers -- each member reads the thread so far, then answers alone
     prompt = ANSWER_PROMPT.format(q=question)
     for m in members:
-        r = transport.ask(m, [{"role": "user", "content": prompt}])
+        r = transport.ask(m, prior + [{"role": "user", "content": prompt}])
         (s.answers if r.ok else s.failures).append(r)
 
     # A board is the members who actually spoke. Silence is not consent.
@@ -143,14 +165,14 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
         for m in members:
             if not any(a.model == m["id"] for a in s.answers):
                 continue          # a member who did not answer does not get to rank
-            r = transport.ask(m, [{"role": "user", "content": rp}])
+            r = transport.ask(m, prior + [{"role": "user", "content": rp}])
             if r.ok:
                 s.rankings.append(r)
 
     # 3. the chair
     ranked = "\n\n".join(f"--- ranking by a member ---\n{r.text}" for r in s.rankings) or "(none)"
     cp = CHAIR_PROMPT.format(q=question, answers=blind_text, rankings=ranked)
-    r = transport.ask(chair_model, [{"role": "user", "content": cp}])
+    r = transport.ask(chair_model, prior + [{"role": "user", "content": cp}])
     if r.ok:
         s.decision = r.text
     else:

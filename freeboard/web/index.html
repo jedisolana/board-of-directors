@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>freeboard console</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#151a21; --panel2:#1b222b; --line:#242c37;
+    --ink:#e6edf3; --dim:#8b949e; --dimmer:#5c6773;
+    --accent:#4a9eff; --good:#3fb950; --warn:#d29922; --bad:#f85149;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+       height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+  header{display:flex;align-items:center;gap:22px;padding:10px 18px;
+         background:var(--panel);border-bottom:1px solid var(--line);flex:none}
+  .brand{font-weight:650;letter-spacing:-.2px}
+  .brand span{color:var(--dimmer);font-weight:400}
+  .stat{display:flex;flex-direction:column;line-height:1.25}
+  .stat b{font-family:var(--mono);font-size:13px;font-weight:600}
+  .stat i{font-style:normal;color:var(--dimmer);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em}
+  .gauge{width:120px;height:5px;background:var(--panel2);border-radius:3px;overflow:hidden;margin-top:4px}
+  .gauge div{height:100%;background:var(--good);transition:width .3s}
+  .spacer{flex:1}
+  button{font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);
+         border-radius:6px;padding:6px 12px;cursor:pointer}
+  button:hover{border-color:var(--dimmer)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  button.primary:disabled{opacity:.45;cursor:default}
+  button.ghost{background:none}
+
+  main{flex:1;display:flex;min-height:0}
+  aside{width:330px;flex:none;background:var(--panel);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;min-height:0}
+  .asidehead{padding:11px 14px 8px;border-bottom:1px solid var(--line);display:flex;
+             align-items:baseline;gap:8px}
+  .asidehead h2{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  .asidehead small{color:var(--dimmer);font-size:11px}
+  .models{overflow-y:auto;flex:1;padding:6px}
+  .m{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:6px;cursor:pointer}
+  .m:hover{background:var(--panel2)}
+  .m.talking{background:rgba(74,158,255,.12);box-shadow:inset 2px 0 0 var(--accent)}
+  .m input{margin:3px 0 0}
+  .m .id{font-family:var(--mono);font-size:11.5px;word-break:break-all}
+  .m .meta{color:var(--dimmer);font-size:10.5px;font-family:var(--mono)}
+  .m.dead{opacity:.4}
+  .tag{display:inline-block;font-size:9.5px;padding:0 4px;border-radius:3px;
+       background:var(--panel2);color:var(--dim);margin-left:5px;vertical-align:1px}
+
+  section{flex:1;display:flex;flex-direction:column;min-width:0}
+  .thread{flex:1;overflow-y:auto;padding:22px 26px}
+  .turn{max-width:820px;margin:0 auto 20px}
+  .who{font-size:11px;color:var(--dim);font-family:var(--mono);margin-bottom:5px;
+       display:flex;gap:8px;align-items:center}
+  .bubble{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:11px 14px;
+          white-space:pre-wrap;word-wrap:break-word}
+  .turn.you .bubble{background:var(--panel2);border-color:transparent}
+  .turn.you .who{color:var(--accent)}
+
+  .members{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-bottom:11px}
+  .member{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+  .member .lab{font-family:var(--mono);font-size:10.5px;color:var(--accent);margin-bottom:2px}
+  .member .mid{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);
+               margin-bottom:6px;word-break:break-all}
+  .member p{margin:0;font-size:12.5px;white-space:pre-wrap}
+  .verdict{border-left:3px solid var(--good);padding-left:13px}
+  .note{font-size:12px;border-radius:7px;padding:9px 12px;margin-bottom:11px}
+  .note.bad{background:rgba(248,81,73,.09);border:1px solid rgba(248,81,73,.3);color:#ffb4ae}
+  .note.warn{background:rgba(210,153,34,.09);border:1px solid rgba(210,153,34,.3);color:#e9c46a}
+  .note b{display:block;margin-bottom:3px}
+  .note ul{margin:4px 0 0;padding-left:18px}
+
+  footer{flex:none;border-top:1px solid var(--line);background:var(--panel);padding:11px 26px 14px}
+  .composer{max-width:820px;margin:0 auto}
+  .modes{display:flex;gap:7px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .mode{padding:5px 11px;border-radius:20px;border:1px solid var(--line);background:none;
+        color:var(--dim);font-size:12.5px;cursor:pointer}
+  .mode.on{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+  .cost{color:var(--dimmer);font-size:11.5px;font-family:var(--mono);margin-left:auto}
+  .row{display:flex;gap:9px;align-items:flex-end}
+  textarea{flex:1;resize:none;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+           border-radius:8px;padding:10px 12px;font:inherit;min-height:46px;max-height:190px}
+  textarea:focus{outline:none;border-color:var(--accent)}
+
+  dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;
+         padding:22px;max-width:520px;width:92%}
+  dialog::backdrop{background:rgba(0,0,0,.65)}
+  dialog h3{margin:0 0 6px}
+  dialog p{color:var(--dim);font-size:13px;margin:0 0 14px}
+  dialog input{width:100%;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+               border-radius:7px;padding:9px 11px;font:13px var(--mono);margin-bottom:12px}
+  .thinking{color:var(--dim);font-size:12.5px;font-family:var(--mono)}
+  .thinking::after{content:"";animation:dots 1.2s steps(4,end) infinite}
+  @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+  .empty{color:var(--dimmer);text-align:center;margin-top:12vh;font-size:13px;line-height:1.9}
+  .empty code{font-family:var(--mono);color:var(--dim)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">freeboard <span>console</span></div>
+  <div class="stat"><i>key</i><b id="hKey">-</b></div>
+  <div class="stat"><i>today</i><b id="hUse">-</b><div class="gauge"><div id="hBar"></div></div></div>
+  <div class="stat"><i>resets in</i><b id="hReset">-</b></div>
+  <div class="spacer"></div>
+  <button class="ghost" id="bKey">key</button>
+  <button class="ghost" id="bRefresh">refresh models</button>
+  <button class="ghost" id="bClear">new thread</button>
+</header>
+
+<main>
+  <aside>
+    <div class="asidehead">
+      <h2>free models</h2><small id="aMeta"></small>
+    </div>
+    <div class="models" id="models"></div>
+    <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
+      <h2>board</h2><small id="bMeta"></small>
+    </div>
+  </aside>
+
+  <section>
+    <div class="thread" id="thread">
+      <div class="empty" id="empty">
+        Pick a model on the left and start talking.<br>
+        Switch to <b>board</b> on any turn and five of them answer instead.<br>
+        <code>1 request</code> a turn, or <code>11</code> when you convene the board.
+      </div>
+    </div>
+    <footer>
+      <div class="composer">
+        <div class="modes">
+          <button class="mode on" id="mSingle">single model</button>
+          <button class="mode" id="mBoard">board</button>
+          <span class="cost" id="cost">1 request</span>
+        </div>
+        <div class="row">
+          <textarea id="input" placeholder="Ask something..." rows="1"></textarea>
+          <button class="primary" id="send">Send</button>
+        </div>
+      </div>
+    </footer>
+  </section>
+</main>
+
+<dialog id="dKey">
+  <h3>OpenRouter API key</h3>
+  <p>Saved to a 0600 file in <code>~/.freeboard</code> on this machine. It goes to OpenRouter
+     and nowhere else &mdash; the browser never receives it back.
+     Get one at <b>openrouter.ai/keys</b>.</p>
+  <input id="keyInput" type="password" placeholder="sk-or-v1-..." autocomplete="off">
+  <p style="margin:0 0 14px">Has this account ever had <b>$10+</b> of credits put in?
+     That is what decides 50 vs 1000 requests a day, and nothing can read it from the API.</p>
+  <div class="modes" style="margin-bottom:16px">
+    <button class="mode on" id="tNo">no &mdash; 50/day</button>
+    <button class="mode" id="tYes">yes &mdash; 1000/day</button>
+  </div>
+  <div style="display:flex;gap:9px;justify-content:flex-end">
+    <button id="keyCancel">cancel</button>
+    <button class="primary" id="keySave">save</button>
+  </div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+let S = null, mode = "single", talking = null, board = [], thread = [], busy = false, tier = 0;
+
+const esc = t => (t||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const k = n => !n ? "-" : n < 1e6 ? Math.round(n/1000)+"k" : (n/1e6).toFixed(n%1e6?1:0)+"M";
+
+async function api(path, body){
+  const r = await fetch(path, body ? {method:"POST",headers:{"Content-Type":"application/json"},
+                                     body:JSON.stringify(body)} : undefined);
+  return r.json();
+}
+
+function paintHeader(){
+  const u = S.usage;
+  $("#hKey").textContent = S.key_set ? S.key_masked : "not set";
+  $("#hKey").style.color = S.key_set ? "var(--good)" : "var(--warn)";
+  $("#hUse").textContent = `${u.calls} / ${u.allowance}`;
+  $("#hUse").title = u.measured ? "exact - OpenRouter told us on a 429"
+                                : "estimated - counts this program's calls only";
+  const pct = Math.max(0, Math.min(100, 100 * u.remaining / u.allowance));
+  $("#hBar").style.width = pct + "%";
+  $("#hBar").style.background = pct > 40 ? "var(--good)" : pct > 15 ? "var(--warn)" : "var(--bad)";
+  $("#hReset").textContent = u.resets_in;
+  const c = S.catalogue;
+  $("#aMeta").textContent = `${c.seatable} usable · ${c.families.length} families · ${c.origin}`;
+}
+
+function paintModels(){
+  const box = $("#models"); box.innerHTML = "";
+  const list = S.models.slice().sort((a,b) =>
+    (b.seatable-a.seatable) || a.family.localeCompare(b.family) || a.id.localeCompare(b.id));
+  for(const m of list){
+    const row = document.createElement("div");
+    row.className = "m" + (m.id===talking ? " talking":"") + (m.seatable ? "":" dead");
+    row.innerHTML = `<input type="checkbox" ${board.includes(m.id)?"checked":""}
+                       ${m.seatable?"":"disabled"} title="seat on the board">
+      <div><div class="id">${esc(m.id)}${m.json?'<span class="tag">json</span>':''}</div>
+      <div class="meta">reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}</div></div>`;
+    row.querySelector("input").onclick = e => {
+      e.stopPropagation();
+      board = e.target.checked ? [...board, m.id] : board.filter(x => x !== m.id);
+      const fams = {}; const keep = [];
+      for(const id of board){ const mm = S.models.find(x=>x.id===id);
+        if(mm && !fams[mm.family]){ fams[mm.family]=1; keep.push(id); } }
+      if(keep.length !== board.length){
+        board = keep;
+        note("One seat per family", "Two models from the same company is not a second opinion, so the duplicate was dropped.", "warn");
+      }
+      api("/api/board", {board}).then(s => { S = s; paint(); });
+    };
+    row.onclick = () => { if(m.seatable || true){ talking = m.id; paint(); } };
+    box.appendChild(row);
+  }
+  $("#bMeta").textContent = board.length
+      ? `${board.length} seated · ${new Set(board.map(id=>S.models.find(m=>m.id===id)?.family)).size} families`
+      : "none chosen — auto at run time";
+  $("#cost").textContent = mode === "board"
+      ? `${(board.length||5)*2 + 1} requests` : "1 request";
+}
+
+function paint(){ paintHeader(); paintModels(); }
+
+function note(title, body, kind){
+  const d = document.createElement("div");
+  d.className = "turn"; 
+  d.innerHTML = `<div class="note ${kind}"><b>${esc(title)}</b>${body}</div>`;
+  $("#thread").appendChild(d); scroll();
+}
+const scroll = () => { const t=$("#thread"); t.scrollTop = t.scrollHeight; };
+
+function addYou(text){
+  $("#empty")?.remove();
+  const d = document.createElement("div");
+  d.className = "turn you";
+  d.innerHTML = `<div class="who">you</div><div class="bubble">${esc(text)}</div>`;
+  $("#thread").appendChild(d); scroll();
+}
+
+function addSingle(r){
+  const d = document.createElement("div");
+  d.className = "turn";
+  d.innerHTML = `<div class="who">${esc(r.model)}</div><div class="bubble">${esc(r.text)}</div>`;
+  $("#thread").appendChild(d); scroll();
+}
+
+function addBoard(r){
+  const d = document.createElement("div");
+  d.className = "turn";
+  let h = `<div class="who">board · ${r.answers.length} answered · chaired by ${esc(r.chair)} · ${r.calls} requests</div>`;
+  h += `<div class="members">` + r.answers.map(a =>
+    `<div class="member"><div class="lab">${esc(a.label)}</div>
+     <div class="mid">${esc(a.model)}</div><p>${esc(a.text)}</p></div>`).join("") + `</div>`;
+  if(r.failures.length)
+    h += `<div class="note warn"><b>${r.failures.length} member(s) did not answer &mdash; not counted as agreement</b>
+          <ul>${r.failures.map(f=>`<li>${esc(f.model)}: ${esc(f.reason)}</li>`).join("")}</ul></div>`;
+  if(r.no_quorum)
+    h += `<div class="note bad"><b>No quorum</b>${esc(r.no_quorum)}</div>`;
+  else
+    h += `<div class="bubble verdict">${esc(r.decision)}</div>`;
+  d.innerHTML = h;
+  $("#thread").appendChild(d); scroll();
+}
+
+async function send(){
+  const text = $("#input").value.trim();
+  if(!text || busy) return;
+  if(mode === "single" && !talking){ note("Pick a model", "Choose one on the left to talk to, or switch to board mode.", "warn"); return; }
+  busy = true; $("#send").disabled = true;
+  $("#input").value = ""; $("#input").style.height = "auto";
+  addYou(text);
+  thread.push({role:"user", content:text});
+
+  const wait = document.createElement("div");
+  wait.className = "turn";
+  wait.innerHTML = `<div class="thinking">${mode==="board"
+      ? "the board is answering, one member at a time" : esc(talking)+" is thinking"}</div>`;
+  $("#thread").appendChild(wait); scroll();
+
+  const r = await api("/api/chat", {mode, model:talking, board, messages:thread});
+  wait.remove();
+
+  if(r.refused){
+    thread.pop();
+    note("Refused to send", "Nothing left this machine. The message contains:<ul>"
+      + r.refused.map(f=>`<li>${esc(f)}</li>`).join("") + "</ul>", "bad");
+  } else if(r.error){
+    thread.pop(); note("Error", esc(r.error), "bad");
+  } else if(r.mode === "board"){
+    addBoard(r);
+    if(r.decision) thread.push({role:"assistant", content:r.decision});
+  } else if(r.failed){
+    thread.pop(); note(r.model + " did not answer", esc(r.reason), "bad");
+  } else {
+    addSingle(r);
+    thread.push({role:"assistant", content:r.text});
+  }
+  if(r.usage){ S.usage = r.usage; paintHeader(); }
+  busy = false; $("#send").disabled = false; $("#input").focus();
+}
+
+function setMode(m){
+  mode = m;
+  $("#mSingle").classList.toggle("on", m === "single");
+  $("#mBoard").classList.toggle("on", m === "board");
+  paintModels();
+}
+
+$("#mSingle").onclick = () => setMode("single");
+$("#mBoard").onclick  = () => setMode("board");
+$("#send").onclick = send;
+$("#input").onkeydown = e => {
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(); }
+};
+$("#input").oninput = e => {
+  e.target.style.height = "auto";
+  e.target.style.height = Math.min(e.target.scrollHeight, 190) + "px";
+};
+$("#bClear").onclick = () => {
+  thread = [];
+  $("#thread").innerHTML = `<div class="empty" id="empty">New thread. Ask something.</div>`;
+};
+$("#bRefresh").onclick = async () => {
+  const r = await fetch("/api/state?refresh=1"); S = await r.json(); paint();
+  note("Model list refreshed", `${S.catalogue.free} free models right now, ${S.catalogue.origin}.`, "warn");
+};
+$("#bKey").onclick = () => $("#dKey").showModal();
+$("#keyCancel").onclick = () => $("#dKey").close();
+$("#tNo").onclick  = () => { tier = 0;  $("#tNo").classList.add("on");  $("#tYes").classList.remove("on"); };
+$("#tYes").onclick = () => { tier = 10; $("#tYes").classList.add("on"); $("#tNo").classList.remove("on"); };
+$("#keySave").onclick = async () => {
+  const v = $("#keyInput").value.trim();
+  if(v) S = await api("/api/key", {key:v});
+  S = await api("/api/tier", {usd:tier});
+  $("#keyInput").value = ""; $("#dKey").close(); paint();
+};
+
+(async () => {
+  S = await api("/api/state");
+  board = S.board || [];
+  tier = S.usage.qualified ? 10 : 0;
+  if(tier) $("#tYes").classList.add("on"), $("#tNo").classList.remove("on");
+  talking = S.models.find(m => m.seatable && m.json)?.id || null;
+  paint();
+  if(!S.key_set) $("#dKey").showModal();
+  $("#input").focus();
+})();
+</script>
+</body>
+</html>

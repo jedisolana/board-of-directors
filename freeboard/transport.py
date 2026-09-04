@@ -31,6 +31,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from . import usage
+
 API = "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -88,7 +90,7 @@ class OpenRouterTransport(Transport):
     """The real client. Sends only parameters the model is documented to support."""
 
     def __init__(self, api_key: str, *, app_url: str | None = None, app_title: str = "freeboard",
-                 timeout: float = 120.0, max_retries: int = 4, sleep=time.sleep):
+                 timeout: float = 120.0, max_retries: int = 4, sleep=time.sleep, meter: bool = True):
         if not api_key:
             raise ValueError("no API key -- use OfflineTransport to run without one")
         self.api_key = api_key
@@ -97,6 +99,17 @@ class OpenRouterTransport(Transport):
         self.timeout = timeout
         self.max_retries = max_retries
         self._sleep = sleep
+        self.meter = meter
+
+    def _count(self, model: str, ok: bool) -> None:
+        """Every request that reached the platform, counted -- failures included, because a
+        rejected request still spent one of your allowance."""
+        if not self.meter:
+            return
+        try:
+            usage.record(model, ok)
+        except Exception:
+            pass          # a broken counter must never break a board session
 
     def _headers(self) -> dict:
         h = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
@@ -142,10 +155,22 @@ class OpenRouterTransport(Transport):
                     retry_after = float(e.headers.get("Retry-After")) if e.headers.get("Retry-After") else None
                 except (TypeError, ValueError):
                     retry_after = None
+                if e.code == 429:
+                    # The ONLY moment OpenRouter states the real numbers. Successful responses
+                    # carry no X-RateLimit-* headers at all, so this is the one chance to stop
+                    # estimating -- take it whether or not we go on to retry.
+                    self._count(model["id"], False)
+                    def _int(h):
+                        try: return int(e.headers.get(h))
+                        except (TypeError, ValueError): return None
+                    usage.learn_from_429(_int("X-RateLimit-Limit"), _int("X-RateLimit-Remaining"),
+                                         e.headers.get("X-RateLimit-Reset"))
                 if e.code == 429 and attempt < self.max_retries - 1:
                     self._sleep(self._backoff(attempt, retry_after))
                     last = "rate limited"
                     continue
+                if e.code != 429:
+                    self._count(model["id"], False)
                 if e.code == 402 or "negative" in raw.lower():
                     # A negative balance blocks FREE models too -- an easy one to misread as
                     # the free model having gone away.
@@ -154,12 +179,14 @@ class OpenRouterTransport(Transport):
                 return Failure(model["id"], f"http {e.code}: {raw[:200]}", status=e.code,
                                retry_after=retry_after)
             except Exception as e:
+                self._count(model["id"], False)
                 if attempt < self.max_retries - 1:
                     self._sleep(self._backoff(attempt, None))
                     last = f"{type(e).__name__}: {e}"
                     continue
                 return Failure(model["id"], f"{type(e).__name__}: {e}")
 
+            self._count(model["id"], True)
             err = payload.get("error")
             if err:
                 return Failure(model["id"], str(err)[:200], status=(err or {}).get("code")
