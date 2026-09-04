@@ -4,6 +4,8 @@ A board that works when every model answers is easy. The whole value of this thi
 does when a member is throttled, when the seam sees a key, or when the pool has no
 independent members left -- so that is what most of these check.
 """
+import os
+import re
 import unittest
 
 from freeboard import board, budget, catalogue, config, redact, seats
@@ -304,6 +306,44 @@ class TheKeyBox(unittest.TestCase):
     def test_a_real_shaped_key_passes_and_is_trimmed(self):
         k = "sk-or-v1-" + "a" * 64
         self.assertEqual(config.check_key(f"  {k}  "), k)
+
+
+class ThePage(unittest.TestCase):
+    """Catch the mistake that kept the key dialog open.
+
+    An edit added JavaScript referencing `#tierAsk` while the edit that was supposed to CREATE
+    that element silently did not match. `$("#tierAsk").style` then threw, the save handler
+    died halfway, and the dialog never closed -- so a working key looked like a broken app.
+    Nothing in Python could see it, because the bug lived in a string.
+    """
+
+    PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "..", "freeboard", "web", "index.html")
+
+    def page(self):
+        with open(self.PAGE) as f:
+            return f.read()
+
+    def test_every_element_the_script_reaches_for_exists(self):
+        h = self.page()
+        ids = set(re.findall(r'id="([A-Za-z0-9_-]+)"', h))
+        used = set(re.findall(r'\$\("#([A-Za-z0-9_-]+)"\)', h))
+        self.assertEqual(sorted(used - ids), [], "script references elements that do not exist")
+
+    def test_tags_are_balanced(self):
+        """A half-applied edit left a stray closing tag inside the dialog."""
+        h = self.page()
+        for tag in ("div", "dialog", "section", "aside"):
+            opens = len(re.findall(rf"<{tag}[\s>]", h))
+            closes = len(re.findall(rf"</{tag}>", h))
+            self.assertEqual(opens, closes, f"<{tag}> opened {opens} times, closed {closes}")
+
+    def test_the_endpoints_the_page_calls_are_served(self):
+        h = self.page()
+        called = set(re.findall(r'"(/api/[a-z_]+)"', h))
+        served = set(re.findall(r'self\.path(?:\s*==\s*|\.startswith\()\s*"(/api/[a-z_]+)"',
+                                open(os.path.join(os.path.dirname(self.PAGE), "..", "server.py")).read()))
+        self.assertEqual(sorted(called - served), [], "page calls endpoints the server does not serve")
 
 
 class Catalogue(unittest.TestCase):

@@ -218,14 +218,18 @@
   <div id="keyErr" class="note bad" style="display:none;margin-bottom:12px"></div>
   <div id="keyOk" class="note" style="display:none;margin-bottom:12px;
        background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.35);color:#7ee787"></div>
-  <p style="margin:0 0 14px">Saving checks the key against OpenRouter first, so you find out
-     here rather than on your first question.<br><br>Has this account ever had <b>$10+</b> of credits put in?
-     That is what decides 50 vs 1000 requests a day, and nothing can read it from the API.</p>
-  <div class="modes" style="margin-bottom:16px">
-    <button class="mode on" id="tNo">no &mdash; 50/day</button>
-    <button class="mode" id="tYes">yes &mdash; 1000/day</button>
-  </div></div>
-  <div style="display:flex;gap:9px;justify-content:flex-end">
+  <p style="margin:0 0 14px">Saving checks the key with OpenRouter first, so you find out here
+     rather than on your first question &mdash; including how many free requests a day this
+     account gets, which OpenRouter reports and you should not have to know.</p>
+  <div id="tierAsk">
+    <p style="margin:0 0 10px">Only if OpenRouter will not say: has this account ever had
+       <b>$10+</b> of credits put in?</p>
+    <div class="modes" style="margin-bottom:16px">
+      <button class="mode on" id="tNo">no &mdash; 50/day</button>
+      <button class="mode" id="tYes">yes &mdash; 1000/day</button>
+    </div>
+  </div>
+  <div class="actions">
     <button id="keyCancel">cancel</button>
     <button class="primary" id="keySave">save</button>
   </div>
