@@ -145,8 +145,33 @@ def set_board(members: list[str], name: str = "default") -> str:
 
 
 def tier() -> float:
-    """Credits ever purchased, as you told us. Decides 50/day vs 1000/day."""
-    return float(load().get("credits_purchased_usd", 0.0))
+    """Credits ever purchased. Decides 50/day vs 1000/day.
+
+    Prefers what OPENROUTER said over what the user said. `is_free_tier` from GET
+    /api/v1/key is the same fact the limit turns on, and the account knows it while the
+    person often does not.
+    """
+    cfg = load()
+    measured = cfg.get("is_free_tier")
+    if measured is not None:
+        return 0.0 if measured else float(CREDIT_THRESHOLD)
+    return float(cfg.get("credits_purchased_usd", 0.0))
+
+
+def tier_source() -> str:
+    return "OpenRouter" if load().get("is_free_tier") is not None else "you told us"
+
+
+def set_measured_tier(is_free_tier: bool | None) -> None:
+    """Record what the account itself reports. None means it did not say."""
+    if is_free_tier is None:
+        return
+    cfg = load()
+    cfg["is_free_tier"] = bool(is_free_tier)
+    save(cfg)
+
+
+CREDIT_THRESHOLD = 10
 
 
 def set_tier(usd: float) -> str:

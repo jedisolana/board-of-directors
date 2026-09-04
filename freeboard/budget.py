@@ -25,6 +25,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# OpenRouter answers this itself. GET /api/v1/key returns `is_free_tier`, which is exactly
+# the fact the daily limit turns on -- so the question "have you ever put in $10?" never had
+# to be asked. It was asked anyway, of a person who cannot be expected to know, and a wrong
+# answer silently sets the allowance twenty times too high.
 RPM = 20
 RPD_WITHOUT_CREDITS = 50
 RPD_WITH_CREDITS = 1000

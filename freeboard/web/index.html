@@ -216,13 +216,15 @@
   </div>
   <div id="keyState" style="font-size:11.5px;color:var(--dimmer);margin:-6px 0 12px"></div>
   <div id="keyErr" class="note bad" style="display:none;margin-bottom:12px"></div>
+  <div id="keyOk" class="note" style="display:none;margin-bottom:12px;
+       background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.35);color:#7ee787"></div>
   <p style="margin:0 0 14px">Saving checks the key against OpenRouter first, so you find out
      here rather than on your first question.<br><br>Has this account ever had <b>$10+</b> of credits put in?
      That is what decides 50 vs 1000 requests a day, and nothing can read it from the API.</p>
   <div class="modes" style="margin-bottom:16px">
     <button class="mode on" id="tNo">no &mdash; 50/day</button>
     <button class="mode" id="tYes">yes &mdash; 1000/day</button>
-  </div>
+  </div></div>
   <div style="display:flex;gap:9px;justify-content:flex-end">
     <button id="keyCancel">cancel</button>
     <button class="primary" id="keySave">save</button>
@@ -270,8 +272,9 @@ function paintHeader(){
   $("#hKey").textContent = S.key_set ? S.key_masked : "not set";
   $("#hKey").style.color = S.key_set ? "var(--good)" : "var(--warn)";
   $("#hUse").textContent = `${u.calls} / ${u.allowance}`;
-  $("#hUse").title = u.measured ? "exact - OpenRouter told us on a 429"
-                                : "estimated - counts this program's calls only";
+  $("#hUse").title = (u.measured ? "exact - OpenRouter told us on a 429"
+                                 : "estimated - counts this program's calls only")
+    + `\nallowance ${u.allowance}/day, from ${S.tier_source || "you told us"}`;
   const pct = Math.max(0, Math.min(100, 100 * u.remaining / u.allowance));
   $("#hBar").style.width = pct + "%";
   $("#hBar").style.background = pct > 40 ? "var(--good)" : pct > 15 ? "var(--warn)" : "var(--bad)";
@@ -570,7 +573,9 @@ $("#codePath").onkeydown = e => { if(e.key === "Enter"){ e.preventDefault(); doS
 $("#codeOne").onclick = () => sendCode(false);
 $("#codeBoard").onclick = () => sendCode(true);
 
-$("#bKey").onclick = () => { paintKeyState(); saveAnyway = false; $("#keyErr").style.display="none";
+$("#bKey").onclick = () => { paintKeyState(); saveAnyway = false;
+                             $("#keyErr").style.display="none"; $("#keyOk").style.display="none";
+                             $("#tierAsk").style.display = (S && S.tier_source === "OpenRouter") ? "none" : "";
                              $("#dKey").showModal(); };
 $("#keyCancel").onclick = () => $("#dKey").close();
 $("#tNo").onclick  = () => { tier = 0;  $("#tNo").classList.add("on");  $("#tYes").classList.remove("on"); };
@@ -602,13 +607,32 @@ $("#keySave").onclick = async () => {
              <input type="checkbox" id="anywayKey" style="margin:2px 0 0;flex:none">
              <span>Save it anyway — I am sure it is right.</span></label>` : "");
       $("#keyErr").style.display = "block";
+      $("#keyErr").scrollIntoView({block:"nearest"});
+      $("#dKey").animate([{transform:"translateX(0)"},{transform:"translateX(-7px)"},
+                          {transform:"translateX(7px)"},{transform:"translateX(0)"}],
+                         {duration:220});
       $("#keyInput").type = "text"; $("#keyEye").textContent = "hide";
       const box = $("#anywayKey");
       if(box) box.onchange = e => { saveAnyway = e.target.checked; };
       return;
     }
     S = r; saveAnyway = false;
-    if(r.verified) note("Key accepted", "OpenRouter checked it and it works.", "warn");
+    if(r.verified){
+      // Say it in the dialog, not only in the thread behind it. The old version closed
+      // instantly on success and left an error sitting silently on failure, so both
+      // outcomes looked the same from the chair: a dialog that did not go away.
+      $("#keyOk").innerHTML = `<b>Key accepted</b>OpenRouter checked it and it works.`
+        + (r.tier_source === "OpenRouter"
+            ? ` It also told us this account gets <b>${r.usage.allowance} requests a day</b>,
+                so we did not have to ask.` : "");
+      $("#keyOk").style.display = "block";
+      $("#tierAsk").style.display = (r.tier_source === "OpenRouter") ? "none" : "";
+      $("#keyInput").value = ""; $("#keyInput").type = "password";
+      $("#keyEye").textContent = "show";
+      paintKeyState(); paint();
+      setTimeout(() => { $("#keyOk").style.display = "none"; $("#dKey").close(); }, 1600);
+      return;
+    }
   }
   S = await api("/api/tier", {usd:tier});
   $("#keyInput").value = ""; $("#keyInput").type = "password"; $("#keyEye").textContent = "show";

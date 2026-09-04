@@ -59,6 +59,7 @@ def _state() -> dict:
         "models": [{**m, "json": catalogue.speaks_json(m),
                     "seatable": any(x["id"] == m["id"] for x in seatable)} for m in models],
         "board": saved,
+        "tier_source": config.tier_source(),
         "usage": {"calls": st.calls, "failed": st.failed, "allowance": st.allowance,
                   "remaining": st.remaining, "measured": st.measured,
                   "resets_in": st.resets_in, "qualified": st.qualified,
@@ -197,6 +198,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"bad_key": why, "warn": config.looks_unusual(k),
                                        "offer_save": True, **_state()})
                 config.set_api_key(k)
+                # the account's own answer beats the user's guess about their own account
+                config.set_measured_tier(acct.get("is_free_tier"))
                 st = _state()
                 st["verified"] = ok
                 st["why"] = why
