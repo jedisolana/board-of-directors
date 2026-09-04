@@ -119,6 +119,7 @@ def learn_from_429(limit: int | None, remaining: int | None, reset: str | None) 
 class Status:
     day: str
     calls: int
+    since_reset: bool
     failed: int
     provider_busy: int
     per_model: dict
@@ -156,6 +157,11 @@ def reset_today(day: str | None = None) -> dict:
         d = _load()
         day = day or _today()
         was = d["days"].pop(day, {"calls": 0, "failed": 0, "provider_busy": 0, "models": {}})
+        # Remember that this day's number starts from a reset. Otherwise the meter reads
+        # "0 / 50" and promises fifty requests it has no basis for: clearing OUR count gives
+        # back none of OpenRouter's allowance, and what was really spent before the reset is
+        # now unknowable. A meter that cannot know must say so, not round its ignorance up.
+        d.setdefault("reset_days", {})[day] = time.time()
         if (d.get("truth") or {}).get("day") == day:
             d["truth"] = None          # a measured figure from the discarded day is discarded too
         _save(d)
@@ -185,8 +191,8 @@ def status(tier_usd: float | None = None) -> Status:
     # seeing - it means the allowance is not what we think, or something else is using the
     # key - and clamping it here would hide the very thing that needs explaining. The display
     # is where an over-count gets said in words.
-    return Status(day=day, calls=rec["calls"], failed=rec["failed"],
-                  provider_busy=rec.get("provider_busy", 0),
+    return Status(day=day, calls=rec["calls"], since_reset=day in (d.get("reset_days") or {}),
+                  failed=rec["failed"], provider_busy=rec.get("provider_busy", 0),
                   per_model=rec.get("models", {}), allowance=allowance,
                   remaining=remaining, measured=measured, tier_usd=tier_usd,
                   resets_in=_resets_in())

@@ -795,6 +795,23 @@ class ResettingTheCount(unittest.TestCase):
         self.assertFalse(st.measured)
         self.assertEqual(st.remaining, 50)
 
+    def test_a_reset_day_stops_promising_a_full_allowance(self):
+        """"0 / 50" after a reset promises fifty requests with no basis for it.
+
+        Clearing OUR count returns none of OpenRouter's allowance, and what was spent before
+        the reset is unrecoverable - the only record was the broken one that got discarded.
+        A meter that cannot know must say so rather than round its ignorance up.
+        """
+        for _ in range(9):
+            usage.record("a/one", ok=True)
+        self.assertFalse(usage.status(0).since_reset)
+        usage.reset_today()
+        self.assertTrue(usage.status(0).since_reset)
+
+    def test_an_ordinary_day_is_not_marked(self):
+        usage.record("a/one", ok=True)
+        self.assertFalse(usage.status(0).since_reset)
+
     def test_counting_after_a_reset_starts_from_one(self):
         for _ in range(5):
             usage.record("a/one", ok=True)

@@ -260,8 +260,9 @@ def cmd_reset(args) -> int:
     was = usage.reset_today()
     print(f"\n  discarded today's count: {was.get('calls', 0)} call(s), "
           f"{was.get('failed', 0)} failed, {was.get('provider_busy', 0)} provider-busy")
-    print("  the meter starts from zero. OpenRouter's own allowance is unaffected -")
-    print("  this forgets what WE counted, not what you actually spent.\n")
+    print("  the meter now reads `since reset`, not `0 of 50` - clearing our count gives back")
+    print("  none of OpenRouter's allowance, and what was already spent cannot be recovered.")
+    print("  The true remaining is unknown until the daily limit rolls over.\n")
     return 0
 
 

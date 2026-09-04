@@ -330,14 +330,25 @@ function paintHeader(){
   // information - the meter is wrong, or something else is using this key - so it is said
   // in words rather than shown as an impossible ratio.
   const over = u.calls > u.allowance;
-  $("#hUse").textContent = over ? `${u.calls} counted` : `${u.calls} / ${u.allowance}`;
-  $("#hUse").style.color = over ? "var(--warn)" : "";
+  // After a reset the denominator is a lie: clearing our count returns none of OpenRouter's
+  // allowance, and what was spent before the reset is unknowable. Say "since reset" rather
+  // than promise a full day that may not be there.
+  $("#hUse").textContent = over ? `${u.calls} counted`
+                         : u.since_reset ? `${u.calls} since reset`
+                         : `${u.calls} / ${u.allowance}`;
+  $("#hUse").style.color = over ? "var(--warn)" : u.since_reset ? "var(--warn)" : "";
+  $("#hUse").parentElement.title = u.since_reset
+    ? "Counting from a reset. Clearing our count gave back none of OpenRouter's allowance, "
+      + "and what was spent before the reset cannot be recovered - so the day's true "
+      + "remaining is unknown until the limit resets."
+    : "";
   $("#hUse").title = (u.measured ? "exact - OpenRouter told us on a 429"
                                  : "estimated - counts this program's calls only")
     + `\nallowance ${u.allowance}/day, from ${S.tier_source || "you told us"}`;
   const pct = Math.max(0, Math.min(100, 100 * u.remaining / u.allowance));
   $("#hBar").style.width = pct + "%";
-  $("#hBar").style.background = pct > 40 ? "var(--good)" : pct > 15 ? "var(--warn)" : "var(--bad)";
+  $("#hBar").style.background = u.since_reset ? "var(--dimmer)"
+                              : pct > 40 ? "var(--good)" : pct > 15 ? "var(--warn)" : "var(--bad)";
   $("#hReset").textContent = u.resets_in;
   const busy = u.provider_busy || 0;
   $("#hBusy").textContent = busy ? `${busy}` : "-";
@@ -621,7 +632,9 @@ $("#bReset").onclick = async () => {
   const r = await api("/api/usage/reset", {});
   S = r; paint();
   note("Count reset", `Discarded ${r.discarded.calls||0} counted call(s). This forgets what `
-     + `<b>we</b> counted, not what you actually spent with OpenRouter.`, "warn");
+     + `<b>we</b> counted &mdash; it gives back none of OpenRouter's allowance, and what was `
+     + `spent before now cannot be recovered. The meter reads "since reset" until the daily `
+     + `limit rolls over.`, "warn");
 };
 $("#bRefresh").onclick = async () => {
   const r = await fetch("/api/state?refresh=1"); S = await r.json(); paint();
