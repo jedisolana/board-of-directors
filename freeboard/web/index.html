@@ -45,8 +45,8 @@
   .m:hover{background:var(--panel2)}
   .m.talking{background:rgba(74,158,255,.12);box-shadow:inset 2px 0 0 var(--accent)}
   .m input{margin:3px 0 0}
-  .m .id{font-family:var(--mono);font-size:11.5px;word-break:break-all}
-  .m .meta{color:var(--dimmer);font-size:10.5px;font-family:var(--mono)}
+  .m .id{font-size:12.5px;font-weight:550;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .m .meta{color:var(--dimmer);font-size:10.5px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .m.dead{opacity:.4}
   .tag{display:inline-block;font-size:9.5px;padding:0 4px;border-radius:3px;
        background:var(--panel2);color:var(--dim);margin-left:5px;vertical-align:1px}
@@ -64,8 +64,7 @@
   .members{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));margin-bottom:11px}
   .member{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 11px}
   .member .lab{font-family:var(--mono);font-size:10.5px;color:var(--accent);margin-bottom:2px}
-  .member .mid{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);
-               margin-bottom:6px;word-break:break-all}
+  .member .mid{font-size:10.5px;color:var(--dimmer);margin-bottom:6px}
   .member p{margin:0;font-size:12.5px;white-space:pre-wrap}
   .verdict{border-left:3px solid var(--good);padding-left:13px}
   .note{font-size:12px;border-radius:7px;padding:9px 12px;margin-bottom:11px}
@@ -122,6 +121,7 @@
     <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
       <h2>board</h2><small id="bMeta"></small>
     </div>
+    <div id="seated" style="padding:0 14px 12px"></div>
   </aside>
 
   <section>
@@ -173,6 +173,19 @@ let S = null, mode = "single", talking = null, board = [], thread = [], busy = f
 const esc = t => (t||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const k = n => !n ? "-" : n < 1e6 ? Math.round(n/1000)+"k" : (n/1e6).toFixed(n%1e6?1:0)+"M";
 
+// OpenRouter names come as "Vendor: Model Name (free)". Everything here is free, so the
+// suffix is noise, and the vendor belongs on its own line rather than in front of the name.
+function pretty(m){
+  const raw = (m && m.name) || (m && m.id) || "";
+  const clean = raw.replace(/\s*\(free\)\s*$/i, "").trim();
+  const cut = clean.indexOf(": ");
+  return cut > 0 ? {vendor: clean.slice(0, cut), name: clean.slice(cut + 2)}
+                 : {vendor: (m && m.family) || "", name: clean};
+}
+const byId = id => (S && S.models.find(m => m.id === id)) || {id};
+const label = id => { const p = pretty(byId(id)); return p.name || id; };
+const full = id => { const p = pretty(byId(id)); return p.vendor ? `${p.vendor} ${p.name}` : (p.name || id); };
+
 async function api(path, body){
   const r = await fetch(path, body ? {method:"POST",headers:{"Content-Type":"application/json"},
                                      body:JSON.stringify(body)} : undefined);
@@ -201,10 +214,14 @@ function paintModels(){
   for(const m of list){
     const row = document.createElement("div");
     row.className = "m" + (m.id===talking ? " talking":"") + (m.seatable ? "":" dead");
+    const p = pretty(m);
+    row.title = m.id;
     row.innerHTML = `<input type="checkbox" ${board.includes(m.id)?"checked":""}
                        ${m.seatable?"":"disabled"} title="seat on the board">
-      <div><div class="id">${esc(m.id)}${m.json?'<span class="tag">json</span>':''}</div>
-      <div class="meta">reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}</div></div>`;
+      <div style="min-width:0">
+        <div class="id">${esc(p.name)}${m.json?'<span class="tag">json</span>':''}</div>
+        <div class="meta">${esc(p.vendor)} · reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}</div>
+      </div>`;
     row.querySelector("input").onclick = e => {
       e.stopPropagation();
       board = e.target.checked ? [...board, m.id] : board.filter(x => x !== m.id);
@@ -221,8 +238,14 @@ function paintModels(){
     box.appendChild(row);
   }
   $("#bMeta").textContent = board.length
-      ? `${board.length} seated · ${new Set(board.map(id=>S.models.find(m=>m.id===id)?.family)).size} families`
+      ? `${board.length} seated · ${new Set(board.map(id=>byId(id).family)).size} families`
       : "none chosen — auto at run time";
+  const seated = $("#seated");
+  seated.innerHTML = board.map(id => {
+    const p = pretty(byId(id));
+    return `<div class="meta" title="${esc(id)}" style="padding:2px 0">${esc(p.name)}`
+         + `<span style="color:var(--dimmer)"> · ${esc(p.vendor)}</span></div>`;
+  }).join("");
   $("#cost").textContent = mode === "board"
       ? `${(board.length||5)*2 + 1} requests` : "1 request";
 }
@@ -248,20 +271,22 @@ function addYou(text){
 function addSingle(r){
   const d = document.createElement("div");
   d.className = "turn";
-  d.innerHTML = `<div class="who">${esc(r.model)}</div><div class="bubble">${esc(r.text)}</div>`;
+  d.innerHTML = `<div class="who" title="${esc(r.model)}">${esc(full(r.model))}</div>`
+              + `<div class="bubble">${esc(r.text)}</div>`;
   $("#thread").appendChild(d); scroll();
 }
 
 function addBoard(r){
   const d = document.createElement("div");
   d.className = "turn";
-  let h = `<div class="who">board · ${r.answers.length} answered · chaired by ${esc(r.chair)} · ${r.calls} requests</div>`;
+  let h = `<div class="who">board · ${r.answers.length} answered · chaired by `
+        + `<span title="${esc(r.chair)}">${esc(label(r.chair))}</span> · ${r.calls} requests</div>`;
   h += `<div class="members">` + r.answers.map(a =>
-    `<div class="member"><div class="lab">${esc(a.label)}</div>
-     <div class="mid">${esc(a.model)}</div><p>${esc(a.text)}</p></div>`).join("") + `</div>`;
+    `<div class="member" title="${esc(a.model)}"><div class="lab">${esc(a.label)}</div>
+     <div class="mid">${esc(full(a.model))}</div><p>${esc(a.text)}</p></div>`).join("") + `</div>`;
   if(r.failures.length)
     h += `<div class="note warn"><b>${r.failures.length} member(s) did not answer &mdash; not counted as agreement</b>
-          <ul>${r.failures.map(f=>`<li>${esc(f.model)}: ${esc(f.reason)}</li>`).join("")}</ul></div>`;
+          <ul>${r.failures.map(f=>`<li><b>${esc(label(f.model))}</b> &mdash; ${esc(f.reason)}</li>`).join("")}</ul></div>`;
   if(r.no_quorum)
     h += `<div class="note bad"><b>No quorum</b>${esc(r.no_quorum)}</div>`;
   else
@@ -282,7 +307,7 @@ async function send(){
   const wait = document.createElement("div");
   wait.className = "turn";
   wait.innerHTML = `<div class="thinking">${mode==="board"
-      ? "the board is answering, one member at a time" : esc(talking)+" is thinking"}</div>`;
+      ? "the board is answering, one member at a time" : esc(label(talking))+" is thinking"}</div>`;
   $("#thread").appendChild(wait); scroll();
 
   const r = await api("/api/chat", {mode, model:talking, board, messages:thread});
@@ -298,7 +323,7 @@ async function send(){
     addBoard(r);
     if(r.decision) thread.push({role:"assistant", content:r.decision});
   } else if(r.failed){
-    thread.pop(); note(r.model + " did not answer", esc(r.reason), "bad");
+    thread.pop(); note(label(r.model) + " did not answer", esc(r.reason), "bad");
   } else {
     addSingle(r);
     thread.push({role:"assistant", content:r.text});

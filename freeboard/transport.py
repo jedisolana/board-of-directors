@@ -36,6 +36,27 @@ from . import usage
 API = "https://openrouter.ai/api/v1/chat/completions"
 
 
+def _why(status: int, raw: str) -> str:
+    """A reason a person can read.
+
+    Providers answer errors as nested JSON, and pasting that into the UI makes a plain
+    'your key is wrong' look like a crash. Dig out the sentence; keep the code."""
+    try:
+        body = json.loads(raw)
+        msg = body.get("error")
+        while isinstance(msg, dict):
+            msg = msg.get("message") or msg.get("error")
+        if isinstance(msg, str) and msg.strip():
+            return f"{msg.strip().rstrip('.')} ({status})"
+    except Exception:
+        pass
+    plain = {401: "the API key was rejected", 402: "not enough credit",
+             403: "this model refused the request", 404: "no such model",
+             408: "the provider timed out", 429: "rate limited",
+             502: "the provider is unreachable", 503: "the provider is busy"}
+    return f"{plain.get(status, 'request failed')} ({status})"
+
+
 @dataclass
 class Answer:
     """A member actually spoke."""
@@ -174,9 +195,9 @@ class OpenRouterTransport(Transport):
                 if e.code == 402 or "negative" in raw.lower():
                     # A negative balance blocks FREE models too -- an easy one to misread as
                     # the free model having gone away.
-                    return Failure(model["id"], "account balance blocks free models "
-                                                "(top up above zero)", status=e.code)
-                return Failure(model["id"], f"http {e.code}: {raw[:200]}", status=e.code,
+                    return Failure(model["id"], "a negative balance blocks free models too "
+                                                "- top the account up above zero", status=e.code)
+                return Failure(model["id"], _why(e.code, raw), status=e.code,
                                retry_after=retry_after)
             except Exception as e:
                 self._count(model["id"], False)

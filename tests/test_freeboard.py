@@ -58,6 +58,20 @@ class Seating(unittest.TestCase):
         self.assertNotIn("openrouter/free", ids)
         self.assertNotIn("google/lyria-3-pro-preview", ids)
 
+    def test_the_free_variant_of_a_barred_model_is_also_barred(self):
+        """Exclusions are about what a model IS, not which variant you asked for.
+
+        `nvidia/nemotron-3.5-content-safety:free` is a guardrail classifier. It slipped past
+        the list because the list held the bare id and the catalogue ships the `:free` one.
+        """
+        pool = POOL + [model("nvidia/nemotron-3.5-content-safety:free"),
+                       model("openrouter/free:free"),
+                       model("google/lyria-3-clip-preview:free")]
+        ids = {m["id"] for m in seats.seat(pool, size=99)}
+        self.assertNotIn("nvidia/nemotron-3.5-content-safety:free", ids)
+        self.assertNotIn("openrouter/free:free", ids)
+        self.assertNotIn("google/lyria-3-clip-preview:free", ids)
+
 
 class Budget(unittest.TestCase):
     def test_the_documented_numbers(self):

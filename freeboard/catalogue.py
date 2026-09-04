@@ -99,13 +99,24 @@ def load(live: bool = True) -> dict:
     return c
 
 
+def base_id(model_id: str) -> str:
+    """The model without its variant suffix: `x/y:free` -> `x/y`.
+
+    Every exclusion here is about what the model IS, not which variant you asked for, so the
+    comparison has to drop the suffix. It did not, and `nemotron-3.5-content-safety:free` --
+    a guardrail classifier -- was quietly seatable as a board member.
+    """
+    return model_id.split(":", 1)[0]
+
+
 def deliberative(models: list[dict]) -> list[dict]:
     """Free models that could actually sit on a board."""
     out = []
     for m in models:
-        if m["id"] in NOT_DELIBERATIVE:
+        bid = base_id(m["id"])
+        if bid in NOT_DELIBERATIVE or m["id"] in NOT_DELIBERATIVE:
             continue
-        if m["id"].startswith(NOT_DELIBERATIVE_PREFIX):
+        if bid.startswith(NOT_DELIBERATIVE_PREFIX):
             continue
         if "text" not in (m.get("input_modalities") or ["text"]):
             continue
