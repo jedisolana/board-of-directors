@@ -177,6 +177,7 @@
   <button class="ghost" id="bCode">audit code</button>
   <button class="ghost" id="bKey">key</button>
   <button class="ghost" id="bRefresh">refresh models</button>
+  <button class="ghost" id="bReset" title="forget today's count and start the meter clean">reset count</button>
   <button class="ghost" id="bExport">export</button>
   <button class="ghost" id="bClear">new thread</button>
 </header>
@@ -616,6 +617,12 @@ async function exportSession(){
   URL.revokeObjectURL(a.href);
 }
 $("#bExport").onclick = exportSession;
+$("#bReset").onclick = async () => {
+  const r = await api("/api/usage/reset", {});
+  S = r; paint();
+  note("Count reset", `Discarded ${r.discarded.calls||0} counted call(s). This forgets what `
+     + `<b>we</b> counted, not what you actually spent with OpenRouter.`, "warn");
+};
 $("#bRefresh").onclick = async () => {
   const r = await fetch("/api/state?refresh=1"); S = await r.json(); paint();
   note("Model list refreshed", `${S.catalogue.free} free models right now, ${S.catalogue.origin}.`, "warn");

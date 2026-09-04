@@ -48,6 +48,13 @@ First release.
 - The chair is handed the count instead of recounting five essays.
 - The tally persists in saved sessions and in exported minutes.
 
+### Honest metering
+- Retries no longer count as separate requests, and a 429 from an upstream **provider** is
+  told apart from OpenRouter's own limit — it costs nothing and does not move the meter.
+- `board reset-count` (and a button) starts the meter clean, because a count that was already
+  wrong is not repaired by counting correctly afterwards.
+- The ledger is never clamped; going past the allowance is said in words, not hidden.
+
 ### Sessions
 - Conversations are saved locally and reopen with the **whole proceeding** — every member's
   answer, every failure and its reason, the chair — not just the verdict.

@@ -140,6 +140,28 @@ def _resets_in() -> str:
     return f"{secs // 3600}h {secs % 3600 // 60}m"
 
 
+def reset_today(day: str | None = None) -> dict:
+    """Forget today's count and start the meter honest.
+
+    Needed because a counter can be WRONG, and a wrong count is not self-correcting: today's
+    figure was inflated by a bug that counted retries and provider-side refusals as spent
+    allowance, and no amount of correct counting afterwards repairs a number that was already
+    too high. The alternative - quietly rewriting the file - would leave someone with a meter
+    they cannot explain and no idea it had been touched.
+
+    It clears the count, not the history of what the day was: the previous figure is returned
+    so the caller can say what it discarded.
+    """
+    with _locked():
+        d = _load()
+        day = day or _today()
+        was = d["days"].pop(day, {"calls": 0, "failed": 0, "provider_busy": 0, "models": {}})
+        if (d.get("truth") or {}).get("day") == day:
+            d["truth"] = None          # a measured figure from the discarded day is discarded too
+        _save(d)
+    return was
+
+
 def status(tier_usd: float | None = None) -> Status:
     from .budget import Budget
     d = _load()

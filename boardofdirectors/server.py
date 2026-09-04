@@ -275,6 +275,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"error": "no such session"})
                 return self._json({"markdown": sessions.as_markdown(doc),
                                    "filename": _slug(doc.get("title", "session")) + ".md"})
+            if self.path == "/api/usage/reset":
+                was = usage.reset_today()
+                return self._json({"discarded": was, **_state()})
             if self.path == "/api/scan":
                 sc = codebase.scan(payload["path"])
                 return self._json(sc.summary())

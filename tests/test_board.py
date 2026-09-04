@@ -749,6 +749,67 @@ class TheOutputCap(unittest.TestCase):
         self.assertEqual(body["max_tokens"], 256)
 
 
+class ResettingTheCount(unittest.TestCase):
+    """A wrong count is not self-correcting.
+
+    Today's figure was inflated by a bug that counted retries and provider-side refusals as
+    spent allowance. Fixing the counter does nothing for a number that was already too high,
+    so there has to be a way to start it clean - as a command the user runs, not as a file
+    quietly rewritten underneath them.
+    """
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self._old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        importlib.reload(usage)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self._old
+        shutil.rmtree(self.home, ignore_errors=True)
+        importlib.reload(config)
+        importlib.reload(usage)
+
+    def test_it_clears_the_day_and_reports_what_it_discarded(self):
+        for _ in range(7):
+            usage.record("a/one", ok=True)
+        usage.record("b/one", ok=False, provider_side=True)
+        was = usage.reset_today()
+        self.assertEqual(was["calls"], 7)
+        self.assertEqual(was["provider_busy"], 1)
+        self.assertEqual(usage.status(0).calls, 0)
+        self.assertEqual(usage.status(0).remaining, 50)
+
+    def test_a_measured_figure_from_the_discarded_day_goes_too(self):
+        """Keeping a 429's number after clearing the calls it was measured against would
+        leave the meter pinned to a figure with nothing behind it."""
+        usage.record("a/one", ok=True)
+        usage.learn_from_429(limit=50, remaining=11, reset=None)
+        self.assertTrue(usage.status(0).measured)
+        usage.reset_today()
+        st = usage.status(0)
+        self.assertFalse(st.measured)
+        self.assertEqual(st.remaining, 50)
+
+    def test_counting_after_a_reset_starts_from_one(self):
+        for _ in range(5):
+            usage.record("a/one", ok=True)
+        usage.reset_today()
+        usage.record("a/one", ok=True)
+        self.assertEqual(usage.status(0).calls, 1)
+
+    def test_other_days_are_untouched(self):
+        usage.record("a/one", ok=True, day="2026-09-01")
+        usage.record("a/one", ok=True)
+        usage.reset_today()
+        self.assertEqual(usage.status(0).calls, 0)
+        self.assertEqual(len([r for r in usage._load()["days"] if r == "2026-09-01"]), 1)
+
+
 class SavedSessions(unittest.TestCase):
     """A board turn costs 9-11 of a 50-a-day allowance. Losing it on reload is not acceptable."""
 

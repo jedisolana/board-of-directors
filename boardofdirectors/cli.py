@@ -256,6 +256,15 @@ def cmd_check(args) -> int:
     return 2
 
 
+def cmd_reset(args) -> int:
+    was = usage.reset_today()
+    print(f"\n  discarded today's count: {was.get('calls', 0)} call(s), "
+          f"{was.get('failed', 0)} failed, {was.get('provider_busy', 0)} provider-busy")
+    print("  the meter starts from zero. OpenRouter's own allowance is unaffected -")
+    print("  this forgets what WE counted, not what you actually spent.\n")
+    return 0
+
+
 def cmd_refresh(args) -> int:
     c = catalogue.fetch()
     with open(catalogue.SNAPSHOT, "w") as f:
@@ -301,6 +310,9 @@ def main(argv: list[str] | None = None) -> int:
     u.add_argument("--port", type=int, default=8420)
     u.add_argument("--no-open", action="store_true", help="do not open a browser")
     u.set_defaults(fn=lambda a: server.serve(a.port, not a.no_open))
+
+    z = sub.add_parser("reset-count", help="forget today's request count and start clean")
+    z.set_defaults(fn=cmd_reset)
 
     r = sub.add_parser("refresh", help="re-read the live free-model catalogue")
     r.set_defaults(fn=cmd_refresh)
