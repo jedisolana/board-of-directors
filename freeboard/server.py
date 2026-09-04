@@ -20,6 +20,7 @@ import json
 import os
 import socketserver
 import threading
+import time
 import webbrowser
 
 from . import board, budget, catalogue, codebase, config, redact, seats, usage
@@ -41,12 +42,17 @@ def build_stamp() -> str:
         return "unknown"
 
 
+CATALOGUE_TTL = 15 * 60          # free models expire; a console left open must notice
+
+
 def _models(refresh: bool = False) -> list[dict]:
-    if refresh or "models" not in _CACHE:
+    stale = time.time() - _CACHE.get("at", 0) > CATALOGUE_TTL
+    if refresh or stale or "models" not in _CACHE:
         c = catalogue.load(live=True)
         _CACHE["models"] = c["models"]
         _CACHE["origin"] = c["origin"]
         _CACHE["captured"] = c["captured"]
+        _CACHE["at"] = time.time()
     return _CACHE["models"]
 
 
@@ -117,8 +123,9 @@ def _single(payload: dict) -> dict:
     code = _code_message(payload, model)
     redact.check("\n".join(m.get("content", "") for m in msgs))
     if code:
-        msgs = msgs[:-1] + [{"role": "user", "content": code}] if msgs else \
-               [{"role": "user", "content": code}]
+        # The code goes in ALONGSIDE what was typed, never instead of it. Replacing the last
+        # message silently drops the actual question whenever a folder is attached.
+        msgs = msgs + [{"role": "user", "content": code}]
     r = transport.ask(model, msgs)
     if not r.ok:
         return {"mode": "single", "model": mid, "failed": True, "reason": r.reason, "calls": 1}

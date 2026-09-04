@@ -30,8 +30,25 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "a signed token"),
     ("bearer header", re.compile(r"(?i)\bauthorization\s*:\s*bearer\s+\S+"), "an Authorization header"),
+    # A secret ASSIGNED to a variable. The VALUE has to look like a secret too, or this
+    # fires on every `max_tokens = ...` in the language. It did: `budget_tokens =
+    # codebase.audit_message(...)` was reported as a leaked credential. A seam that cries
+    # wolf on ordinary code is one people learn to click through, which is worse than not
+    # having one -- the "send anyway" tick has to stay meaningful.
+    #
+    # The signal is not LENGTH. A first attempt required sixteen unquoted characters and
+    # promptly missed an eleven-character key assigned to an env-style name -- short, and
+    # entirely real. What separates a secret from an expression is that a secret mixes
+    # letters and digits and is not a call or an attribute: `CHARS_PER_TOKEN` has no digit,
+    # `codebase.audit(` is followed by a dot, `1024` has no letter. The example that used to
+    # sit in this comment is now only in the tests, because a comment containing a specimen
+    # of the thing you detect will set off your own detector -- which is how this file came
+    # to fail its own cleanliness check.
     ("assignment", re.compile(
-        r"(?i)\b[A-Z0-9_]*(?:API_?KEY|SECRET|PASSWORD|PASSWD|TOKEN|CREDENTIAL)[A-Z0-9_]*\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
+        r"(?i)\b[A-Z0-9_]*(?:API_?KEY|SECRET|PASSWORD|PASSWD|AUTH_?TOKEN|ACCESS_?TOKEN"
+        r"|CREDENTIAL)[A-Z0-9_]*\s*[:=]\s*"
+        r"(?:['\"][^'\"\s]{8,}['\"]"
+        r"|(?=[A-Za-z0-9+/=_-]*\d)(?=[A-Za-z0-9+/=_-]*[A-Za-z])[A-Za-z0-9+/=_-]{8,}(?![\w.(\[]))"),
      "a secret assigned to a variable"),
     ("tailscale address", re.compile(r"\b100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b"),
      "a private Tailscale address"),

@@ -4,11 +4,15 @@ A board that works when every model answers is easy. The whole value of this thi
 does when a member is throttled, when the seam sees a key, or when the pool has no
 independent members left -- so that is what most of these check.
 """
+import importlib
 import os
 import re
+import shutil
+import tempfile
+import threading
 import unittest
 
-from freeboard import board, budget, catalogue, config, redact, seats
+from freeboard import board, budget, catalogue, config, redact, seats, usage
 from freeboard.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
 
 
@@ -116,6 +120,43 @@ class Seam(unittest.TestCase):
                 self.assertTrue(redact.scan(text), f"missed: {text}")
                 with self.assertRaises(redact.Refused):
                     redact.check(text)
+
+    def test_ordinary_code_does_not_trip_the_secret_rule(self):
+        """`budget_tokens = ...` was reported as a leaked credential.
+
+        The rule matched any identifier containing TOKEN followed by eight characters, which
+        is most of a codebase. A seam that cries wolf on ordinary code is one people learn to
+        click past, and the "send anyway" tick then means nothing.
+        """
+        for line in ("budget_tokens = codebase.audit_message(sc, budget)",
+                     "max_tokens = 1024",
+                     "prompt_tokens += len(chunk)",
+                     "self.token_count = compute(a, b)",
+                     "TOKENS_PER_CHAR = CHARS_PER_TOKEN // 4",
+                     "secret_sauce = compute_things(x)"):
+            with self.subTest(line=line):
+                self.assertEqual(redact.scan(line), [], line)
+
+    def test_a_real_assigned_secret_still_fires(self):
+        for line in ('API_KEY = "sk-live-9f2a8b3c1d4e"',
+                     'password: "hunter2placeholder"',
+                     "OPENROUTER_API_KEY=abc123def456ghij",
+                     "AUTH_TOKEN = eyJhbGciOiJIUzI1NiJ9abcdefgh"):
+            with self.subTest(line=line[:20]):
+                self.assertTrue(redact.scan(line), line)
+
+    def test_the_seam_is_quiet_on_this_codebase(self):
+        """The one repo we can check exhaustively: our own, minus its deliberate fixtures."""
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "freeboard")
+        noisy = []
+        for name in sorted(os.listdir(root)):
+            if not name.endswith(".py"):
+                continue
+            with open(os.path.join(root, name)) as fh:
+                for f in redact.scan(fh.read()):
+                    if f.rule not in ("dotenv path", "home path"):
+                        noisy.append(f"{name}: {f}")
+        self.assertEqual(noisy, [])
 
     def test_ordinary_questions_pass(self):
         for text in ["Should we rewrite the parser this quarter?",
@@ -306,6 +347,66 @@ class TheKeyBox(unittest.TestCase):
     def test_a_real_shaped_key_passes_and_is_trimmed(self):
         k = "sk-or-v1-" + "a" * 64
         self.assertEqual(config.check_key(f"  {k}  "), k)
+
+
+class TheCounter(unittest.TestCase):
+    """The ledger, including the bug where a corrected count then never moved again."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self._old = os.environ.get("FREEBOARD_HOME")
+        os.environ["FREEBOARD_HOME"] = self.home
+        importlib.reload(config)
+        importlib.reload(usage)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("FREEBOARD_HOME", None)
+        else:
+            os.environ["FREEBOARD_HOME"] = self._old
+        shutil.rmtree(self.home, ignore_errors=True)
+        importlib.reload(config)
+        importlib.reload(usage)
+
+    def test_the_estimate_counts_down(self):
+        for _ in range(10):
+            usage.record("m", True)
+        self.assertEqual(usage.status(0).calls, 10)
+        self.assertEqual(usage.status(0).remaining, 40)      # 50/day free tier
+        self.assertFalse(usage.status(0).measured)
+
+    def test_a_429_replaces_the_estimate_with_the_real_number(self):
+        for _ in range(10):
+            usage.record("m", True)
+        usage.learn_from_429(limit=50, remaining=17, reset=None)
+        st = usage.status(0)
+        self.assertTrue(st.measured)
+        self.assertEqual(st.remaining, 17)
+
+    def test_the_measured_number_keeps_counting_down(self):
+        """It used to freeze. `since` was hardcoded to zero with a comment describing the
+        subtraction it was not doing, so the console sat on one figure through every call
+        that followed - worse than the estimate it replaced."""
+        usage.learn_from_429(limit=50, remaining=17, reset=None)
+        for _ in range(5):
+            usage.record("m", True)
+        self.assertEqual(usage.status(0).remaining, 12)
+
+    def test_failures_count_against_the_allowance(self):
+        usage.record("m", False)
+        st = usage.status(0)
+        self.assertEqual((st.calls, st.failed), (1, 1))
+        self.assertEqual(st.remaining, 49)
+
+    def test_concurrent_writers_do_not_lose_calls(self):
+        """Read, add one, write - from several threads at once, or two open consoles."""
+        threads = [threading.Thread(target=lambda: [usage.record("m", True) for _ in range(20)])
+                   for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(usage.status(0).calls, 200)
 
 
 class ThePage(unittest.TestCase):

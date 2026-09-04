@@ -1,0 +1,28 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # No dependencies to install - freeboard is standard library only, and the suite
+      # makes no network calls, so this is the whole job.
+      - name: run the tests
+        run: python -m unittest discover -s tests -v
+      - name: the console starts from a clean checkout
+        run: |
+          python -m freeboard.cli --offline board
+          python -m freeboard.cli --offline budget

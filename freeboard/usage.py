@@ -18,9 +18,11 @@ Two things it cannot see, both stated plainly wherever the number is shown:
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from . import config
@@ -30,6 +32,26 @@ LEDGER = os.path.join(config.HOME, "usage.json")
 
 def _today() -> str:
     return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+@contextmanager
+def _locked():
+    """Serialise read-modify-write on the ledger.
+
+    Every counter update is read, add one, write. Two consoles against the same home - or a
+    board firing members concurrently - interleave those and calls vanish. An undercount is
+    the dangerous direction here: it reports headroom that is not there.
+    """
+    config._ensure_home()
+    fh = open(LEDGER + ".lock", "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+        finally:
+            fh.close()
 
 
 def _load() -> dict:
@@ -51,6 +73,11 @@ def _save(d: dict) -> None:
 
 def record(model: str, ok: bool, day: str | None = None) -> None:
     """One call made. Failures count too -- a rejected request still hit the platform."""
+    with _locked():
+        _record(model, ok, day)
+
+
+def _record(model: str, ok: bool, day: str | None = None) -> None:
     d = _load()
     day = day or _today()
     rec = d["days"].setdefault(day, {"calls": 0, "failed": 0, "models": {}})
@@ -65,13 +92,20 @@ def record(model: str, ok: bool, day: str | None = None) -> None:
 
 
 def learn_from_429(limit: int | None, remaining: int | None, reset: str | None) -> None:
-    """The one moment OpenRouter tells the truth. Keep it."""
+    """The one moment OpenRouter tells the truth. Keep it, WITH the call count at that moment.
+
+    Without that count the measured figure is a photograph: correct when taken and never
+    updated again, so the console would sit on "612 remaining" through another two hundred
+    calls. The stored `calls_at` is what lets later calls be subtracted from it.
+    """
     if limit is None and remaining is None:
         return
-    d = _load()
-    d["truth"] = {"at": time.time(), "day": _today(), "limit": limit,
-                  "remaining": remaining, "reset": reset}
-    _save(d)
+    day = _today()
+    with _locked():
+        d = _load()
+        d["truth"] = {"at": time.time(), "day": day, "limit": limit, "remaining": remaining,
+                      "reset": reset, "calls_at": (d["days"].get(day) or {}).get("calls", 0)}
+        _save(d)
 
 
 @dataclass
@@ -109,8 +143,8 @@ def status(tier_usd: float | None = None) -> Status:
     truth = d.get("truth") or {}
     measured = bool(truth) and truth.get("day") == day and truth.get("remaining") is not None
     if measured:
-        # calls made since the 429 that told us
-        since = 0
+        # OpenRouter's figure, minus everything this program has spent since it said so
+        since = max(0, rec["calls"] - int(truth.get("calls_at", rec["calls"])))
         remaining = max(0, int(truth["remaining"]) - since)
         if truth.get("limit"):
             allowance = int(truth["limit"])

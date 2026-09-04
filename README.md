@@ -2,46 +2,73 @@
 
 **A board of directors made of free models.**
 
-Ask a question once, and several models from *different families* answer it independently,
+Ask a question once and several models from *different companies* answer it independently,
 rank each other blind, and a chair that didn't vote writes the decision. It runs on
-OpenRouter's free tier, so the whole thing costs nothing to try.
+OpenRouter's free tier, so it costs nothing to try.
+
+![The console](docs/console.png)
 
 ```bash
-python3 -m freeboard.cli --offline ask "Should we rewrite the parser this quarter?"
+git clone https://github.com/YOUR-NAME/freeboard && cd freeboard
+python3 -m freeboard.cli
 ```
 
-That works with no API key and no network — offline mode seats a real board from the bundled
-catalogue and answers with stubs, so you can see the machinery before you spend a request.
-Set `OPENROUTER_API_KEY` and drop `--offline` to run it for real.
+That's it. No dependencies, no build step, no key required to look around — it opens a
+console in your browser, served from your own machine.
 
 ---
 
-## Why a board instead of one good model
+## Why a board instead of one model
 
-Because a single model agrees with itself. Ask it twice and you get its opinion twice, which
-looks like confirmation and isn't.
+Because one model agrees with itself. Ask it twice and you get its opinion twice, which looks
+like confirmation and isn't.
 
-The research this is built on ([Verga et al., *Replacing Judges with
-Juries*](https://arxiv.org/abs/2404.18796)) found that a panel of several *smaller* models
-beats one big judge — and the reason is that the panel is drawn from **disjoint model
-families**. That word is doing all the work. Seat three checkpoints of the same family and you
-haven't built a jury, you've built one model with a stutter.
+[Verga et al., *Replacing Judges with Juries*](https://arxiv.org/abs/2404.18796) found that a
+panel of several **smaller** models beats one big judge — and the reason is that the panel is
+drawn from **disjoint model families**. That word carries the result. Seat three checkpoints
+of the same family and you haven't built a jury, you've built one model with a stutter.
 
 So freeboard enforces it: **at most one seat per family.** Ask for more seats than there are
 families and you get fewer seats and a reason — never a padded board.
 
-```
-$ python3 -m freeboard.cli --offline board
+## One conversation, two modes
 
-  4 seat(s), one per family:
+Most turns go to a single model for **one request**. When a question is worth more, the same
+thread convenes the board: every member reads the conversation so far, answers independently,
+and the chair's verdict lands back in the thread. Switch back and the next single model
+continues from that verdict.
 
-    minimax/minimax-m3:free                    minimax        ctx  1048576  json
-    dots-studio/dots-3-note-preview:free       dots-studio    ctx   512000  json
-    google/gemma-4-26b-a4b-it:free             google         ctx   262144  json
-    nvidia/nemotron-3-super-120b-a12b:free     nvidia         ctx   262144  json
+You pay eleven requests only on the turns you choose to, and the cost of the next turn is
+shown next to the mode toggle before you send it.
 
-    chair (does not vote): thinkingmachines/inkling-small:free
-```
+The board itself has two kinds, and they use opposite prompts:
+
+| | |
+|---|---|
+| **decide** | A jury. Positions, reasons, dissent. For *"should we?"* |
+| **make** | A competition. Every member attempts the task; the blind ranking judges them on whether they actually **did** it; the chair delivers the winning attempt improved with what the others got right. For *"build me a…"* |
+
+That distinction exists because the first version only had **decide**, and asking it to build
+something produced four models solemnly taking a position on whether building it was wise.
+
+## Audit a folder of code
+
+![Auditing a codebase](docs/audit.png)
+
+Point it at a project. It reads the files **on your machine**, packs them into one message,
+and asks one model or the whole board. Your whole codebase usually fits many times over —
+GLM 5.2 reads 256,000 tokens, and a 1,600-line project is about 16,500.
+
+This is a **loader, not a harness**. You choose the folder; the model never decides what to
+open next. That plays to what free models are good at — reading a lot and answering once —
+and away from what they're worst at, which is driving themselves through a task. It also
+costs one request instead of ten.
+
+**Every file is scanned for secrets before anything is sent.** A source tree is exactly where
+a stray key or a private address lives. A folder with findings is refused, with the file named
+and the secret masked. There's an explicit *"I've looked at these, send anyway"* tick, because
+example keys in test fixtures are normal — but you tick it every time, and it's never
+remembered.
 
 ---
 
@@ -49,123 +76,99 @@ $ python3 -m freeboard.cli --offline board
 
 **One seat per family.** Independence is structural, not a prompt you write.
 
-**Members answer alone.** In round one no member sees another's answer. The moment one reads
-another you have one opinion and some agreement, and agreement is not evidence. There's a test
-for this.
+**Members answer alone.** In round one no member sees another's answer. There's a test for it.
 
-**The ranking round is blind.** Members are shown the other answers as "Member A", "Member B" —
-identities stripped, because a name on an answer moves a ranking. The mapping is kept so you
-can audit who was ranked where, and revealed only afterwards. There's a test that no model id
-ever leaks into a ranking prompt.
+**The ranking round is blind.** Members see the other answers as "Member A", "Member B" —
+because a name on an answer moves a ranking. The mapping is kept for the audit trail and
+revealed afterwards. A test asserts no model id ever leaks into a ranking prompt.
 
 **The chair does not vote.** A member who also counts the votes is not a chair.
 
-**A member who failed is not a member who agreed.** This is the one that matters most.
+**A member who failed is not a member who agreed.**
 
 > When a model is rate limited it doesn't answer. If the board reads "no answer" as "no
 > objection", the vote still completes, still prints a tidy consensus, and is now a decision
-> made by whoever happened not to be throttled. **The board looks more confident exactly when
-> it knows less.**
+> made by whoever happened not to be throttled. **The board looks most confident exactly when
+> it knows least.**
 
 So every call returns an `Answer` or a `Failure`, never an empty `Answer`. Failures are counted
-and named in the report, and if too few members got through, the session returns **NO QUORUM**
-instead of a confident-looking answer from the survivors.
+and named, and if too few got through, the session returns **NO QUORUM** rather than a
+confident answer from the survivors.
 
-**Nothing leaves the machine without passing the seam.** A question pasted out of a terminal
-carries whatever was on the terminal. `freeboard.redact` refuses — it does not scrub — on API
-keys, private keys, JWTs, bearer headers, private and Tailscale addresses, `.ssh` paths, `.env`
-files, and home-directory paths. A scrubber that quietly rewrites your prompt is worse than a
-wall: you never learn you nearly sent a key. Refusals name the finding with the secret masked.
-
-```
-$ python3 -m freeboard.cli check "deploy with sk-or-v1-0123456789abcdef0123"
-  1 finding(s) -- this would be REFUSED:
-    an OpenRouter API key (openrouter key): sk-o...0123
-```
+**Nothing leaves without passing the seam.** `freeboard.redact` refuses — it does not scrub —
+on API keys, private keys, JWTs, bearer headers, private and Tailscale addresses, `.ssh` paths,
+`.env` files and home-directory paths. A scrubber that quietly rewrites your prompt is worse
+than a wall: you never learn you nearly sent a key.
 
 ---
 
 ## What the free tier actually gives you
 
-These numbers are from [OpenRouter's rate-limit
-docs](https://openrouter.ai/docs/api-reference/limits), read 2026-09-04:
+From [OpenRouter's rate-limit docs](https://openrouter.ai/docs/api-reference/limits), read
+2026-09-04:
 
 | | requests/day |
 |---|---|
 | under $10 of credits ever purchased | **50** |
 | $10+ of credits ever purchased | **1000** |
 
-Plus **20 requests per minute**, uniformly.
+Plus **20 requests per minute**.
 
-The $10 is a **one-time, all-time threshold** — not a balance you burn down. It moves which row
-of the table you're on, permanently. **That's 20× your daily free capacity for ten dollars,**
-and it's the largest single lever on the platform.
+The $10 is a **one-time, all-time threshold** — not a balance you spend down. It moves which
+row you're on, permanently. That's **20× your daily free capacity for ten dollars**.
 
-In boards rather than requests:
+**freeboard doesn't ask you which row you're on.** OpenRouter reports `is_free_tier` when it
+verifies your key, and the account knows what its owner often doesn't. The question only
+appears if OpenRouter declines to answer.
 
-```
-$ python3 -m freeboard.cli budget
+**One thing to be honest about:** the daily limit is account-wide. Seating more models buys
+independence and routes around a slow provider — **it does not raise the ceiling.** If you've
+read that spreading a board across many free models multiplies your free capacity, that's
+wrong, and this won't tell you it.
 
-  A 5-member board with blind peer review plus a chair = 11 requests per session.
+### The counter has to guess, and says so
 
-      under $10 of credits ever purchased      50 req/day   ->    4 board session(s)/day
-      $10+ of credits ever purchased         1000 req/day   ->   90 board session(s)/day
+You can't ask how many free requests you have left. OpenRouter's own docs: *"Successful
+inference responses do not include `X-RateLimit-*` headers."* And `/api/v1/key` reports
+**credits**, which stay at zero on the free tier while you burn through the day.
 
-    Pace to stay under 20/min: one session every 33.0s.
-```
-
-**One thing to be honest about:** the daily limit is account-wide across free models. Seating
-more models buys you independence and routes around a slow provider — **it does not raise the
-ceiling.** If you've read that spreading a board across many free models multiplies your free
-capacity, that's wrong, and this library won't tell you it.
-
-(OpenRouter's docs give the daily figure as "your free model rate limit", keyed on credits
-purchased by the account, so it reads as account-wide — they don't say so in as many words.
-`budget.py` assumes account-wide, which is the conservative reading: if you assume per-model
-and you're wrong, you plan a board you can't run.)
+They tell you the truth exactly once: on a 429. So the ledger counts its own calls, labels the
+figure **estimated**, and stops estimating the moment a 429 hands over the real numbers — then
+keeps subtracting from that. It's explicit that calls made with the same key elsewhere are
+invisible, so the true remaining is that figure or lower, never more.
 
 ---
 
 ## Free models come and go
 
-Every hard-coded free-model list rots. `catalogue.py` reads the live catalogue from
-OpenRouter's public models endpoint (no key needed) and falls back to the bundled snapshot in
-`data/` only when the network fails — and it always tells you which one it used and how old it
-is, because a model that stopped being free yesterday will bill you.
+Every hard-coded free-model list rots. The catalogue is read live from OpenRouter's public
+models endpoint (no key needed) and falls back to the bundled snapshot only when the network
+fails — and it always says which one it used and how old it is, because a model that stopped
+being free yesterday will bill you.
 
-```bash
-python3 -m freeboard.cli refresh    # re-read the live catalogue into the snapshot
-```
+It also filters out rows that are priced at zero but aren't board material: a router that
+hides which member answered, a guardrail classifier, a music model. Seating those looks like a
+working board that never deliberates.
 
-It also filters the free list down to models that can actually hold a seat. Some rows are
-priced at zero but aren't board material — a router that hides which member answered, a
-guardrail classifier, a music model. Seating those looks like a working board that never
-deliberates.
+**Two more traps the catalogue hides.** Context and completion limits are **asymmetric** — a
+model with room for your prompt may still refuse your output length. And free variants are not
+the paid model at zero price, they're the paid model with **parameters removed** — including
+the ones that return a vote as data instead of prose. OpenRouter *silently drops* a parameter
+the model doesn't support, so you ask for JSON, get an essay, and get a `200`.
 
----
+## Picking a model
 
-## Two more traps the catalogue hides
+The list sorts by **best at coding** or **best at thinking**, using Artificial Analysis scores
+that OpenRouter ships in its catalogue. They're different rankings — a coding specialist can
+sit mid-table on code and dead last on reasoning. Hover any row for all three indices,
+including agentic, which is the one that says how a model behaves inside a harness.
 
-**Context and completion limits are asymmetric.** A model with room for your prompt may still
-refuse your output length. Checking only the context window is the common bug; `catalogue.fits`
-checks both.
-
-**Free variants are not the paid model with a zero price.** They're the paid model with
-*parameters removed* — most importantly `response_format` and `structured_outputs`, which is
-how you get a vote back as data instead of prose. And OpenRouter **silently drops** a parameter
-the model doesn't support rather than erroring. So you ask for JSON, you get an essay, and you
-get a `200`. `transport.py` only sends what the catalogue says the model supports.
+Models with no published scores show a dash and sort last. They are **unmeasured, not bad** —
+filling a missing score with zero would rank a model bottom for a fact nobody established.
 
 ---
 
-## Install and use
-
-No dependencies. Python 3.10+, standard library only.
-
-```bash
-git clone <this repo> && cd freeboard
-python3 -m unittest discover -s tests      # 27 tests, no network
-```
+## Use it from Python
 
 ```python
 from freeboard import board
@@ -173,43 +176,32 @@ from freeboard import board
 session = board.ask("Should we rewrite the parser this quarter?")
 print(session.report())
 
-print(session.voted)         # members who actually answered
-print(session.failures)      # members who did not -- never counted as agreement
-print(session.no_quorum)     # set if the board could not legitimately decide
-print(session.labels)        # "Member A" -> model id, the audit trail
+session.voted        # members who actually answered
+session.failures     # members who did not — never counted as agreement
+session.no_quorum    # set if the board could not legitimately decide
+session.labels       # "Member A" -> model id, the audit trail
 ```
 
-| command | what it does |
+| command | |
 |---|---|
-| `ask "<question>"` | run a full session |
-| `board` | show who'd be seated, and the chair |
-| `budget` | how many sessions your account actually gets |
-| `check "<text>"` | test the outbound seam without sending anything |
-| `refresh` | re-read the live free-model catalogue |
+| `freeboard` | open the console |
+| `freeboard ask "<question>"` | one session in the terminal |
+| `freeboard board` | who's seated, and the chair |
+| `freeboard budget` | how many sessions your account gets |
+| `freeboard check "<text>"` | test the outbound seam, sending nothing |
+| `freeboard refresh` | re-read the live catalogue |
 
----
+## Tests
 
-## Where this came from
+```bash
+python3 -m unittest discover -s tests
+```
 
-A research swarm was pointed at OpenRouter for four days and produced 280 attack-survived
-findings about it. This library is the buildable half of them.
-
-It also came out of a mistake worth repeating. Four of those findings stated the free-tier
-rate limit like this:
-
-> *"If you have purchased at least ⟨ ⟩ credits, the free models will be limited to ⟨ ⟩
-> requests per day."*
-
-The numbers were gone. OpenRouter's docs page writes them in JavaScript, the scraper captured
-the version where the slots were still empty, and the sentence stayed grammatical — so the
-grounding check ("does this quote appear verbatim in the source?") passed, because the source
-was damaged in the same place as the quote. A corrupt source and a corrupt quote agree with
-each other perfectly.
-
-Four days spent hunting free capacity, blind to the number that defines it.
-
-**A missing number does not leave a hole a text check can see.** That's why the numbers in this
-README carry the date they were read, and why `refresh` exists.
+50 tests, no network, no dependencies. Most of them are failure paths, because a board that
+works when every model answers is the easy half. They cover what happens when a member is
+throttled, when the seam sees a key, when the pool has no independent members left, when two
+consoles write the counter at once — and, after being caught by them the hard way, whether the
+page references elements that exist and whether a closed dialog is actually hidden.
 
 ## Licence
 
