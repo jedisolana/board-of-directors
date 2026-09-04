@@ -40,6 +40,14 @@
              align-items:baseline;gap:8px}
   .asidehead h2{margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
   .asidehead small{color:var(--dimmer);font-size:11px}
+  .sorts{display:flex;gap:4px;padding:7px 12px 8px;border-bottom:1px solid var(--line)}
+  .sort{padding:3px 9px;border-radius:14px;border:1px solid var(--line);background:none;
+        color:var(--dimmer);font-size:11px;cursor:pointer}
+  .sort.on{background:var(--panel2);color:var(--ink);border-color:var(--dimmer)}
+  .score{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto;
+         padding-left:8px;flex:none;text-align:right}
+  .score b{display:block;font-size:12.5px;color:var(--ink);font-weight:600}
+  .score.none b{color:var(--dimmer);font-weight:400;font-size:11px}
   .models{overflow-y:auto;flex:1;padding:6px}
   .m{display:flex;gap:9px;align-items:flex-start;padding:7px 8px;border-radius:6px;cursor:pointer}
   .m:hover{background:var(--panel2)}
@@ -117,6 +125,12 @@
     <div class="asidehead">
       <h2>free models</h2><small id="aMeta"></small>
     </div>
+    <div class="sorts">
+      <button class="sort on" data-k="coding">coding</button>
+      <button class="sort" data-k="thinking">thinking</button>
+      <button class="sort" data-k="agentic">agentic</button>
+      <button class="sort" data-k="size">size</button>
+    </div>
     <div class="models" id="models"></div>
     <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
       <h2>board</h2><small id="bMeta"></small>
@@ -169,6 +183,7 @@
 <script>
 const $ = s => document.querySelector(s);
 let S = null, mode = "single", talking = null, board = [], thread = [], busy = false, tier = 0;
+let sortKey = "coding";
 
 const esc = t => (t||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const k = n => !n ? "-" : n < 1e6 ? Math.round(n/1000)+"k" : (n/1e6).toFixed(n%1e6?1:0)+"M";
@@ -209,8 +224,17 @@ function paintHeader(){
 
 function paintModels(){
   const box = $("#models"); box.innerHTML = "";
-  const list = S.models.slice().sort((a,b) =>
-    (b.seatable-a.seatable) || a.family.localeCompare(b.family) || a.id.localeCompare(b.id));
+  // Unmeasured models sort last and stay blank. A missing score is "never measured",
+  // not zero -- filling it in would rank a model bottom for a fact nobody established.
+  const sc = m => sortKey === "size" ? (m.context_length || 0) : (m.score || {})[sortKey];
+  const list = S.models.slice().sort((a,b) => {
+    if(a.seatable !== b.seatable) return b.seatable - a.seatable;
+    const x = sc(a), y = sc(b);
+    if(x == null && y == null) return a.id.localeCompare(b.id);
+    if(x == null) return 1;
+    if(y == null) return -1;
+    return y - x;
+  });
   for(const m of list){
     const row = document.createElement("div");
     row.className = "m" + (m.id===talking ? " talking":"") + (m.seatable ? "":" dead");
@@ -218,9 +242,14 @@ function paintModels(){
     row.title = m.id;
     row.innerHTML = `<input type="checkbox" ${board.includes(m.id)?"checked":""}
                        ${m.seatable?"":"disabled"} title="seat on the board">
-      <div style="min-width:0">
+      <div style="min-width:0;flex:1">
         <div class="id">${esc(p.name)}${m.json?'<span class="tag">json</span>':''}</div>
         <div class="meta">${esc(p.vendor)} · reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}</div>
+      </div>
+      <div class="score ${sc(m)==null?"none":""}" title="${sortKey==="size"?"context window"
+          :"Artificial Analysis "+sortKey+" index"}">
+        <b>${sortKey==="size" ? k(m.context_length) : (sc(m)==null ? "—" : sc(m))}</b>
+        ${sortKey==="size" ? "" : `<span>${esc(sortKey)}</span>`}
       </div>`;
     row.querySelector("input").onclick = e => {
       e.stopPropagation();
@@ -339,6 +368,11 @@ function setMode(m){
   paintModels();
 }
 
+document.querySelectorAll(".sort").forEach(b => b.onclick = () => {
+  sortKey = b.dataset.k;
+  document.querySelectorAll(".sort").forEach(x => x.classList.toggle("on", x === b));
+  paintModels();
+});
 $("#mSingle").onclick = () => setMode("single");
 $("#mBoard").onclick  = () => setMode("board");
 $("#send").onclick = send;
@@ -373,7 +407,9 @@ $("#keySave").onclick = async () => {
   board = S.board || [];
   tier = S.usage.qualified ? 10 : 0;
   if(tier) $("#tYes").classList.add("on"), $("#tNo").classList.remove("on");
-  talking = S.models.find(m => m.seatable && m.json)?.id || null;
+  talking = S.models.filter(m => m.seatable && (m.score||{}).coding != null)
+             .sort((a,b) => b.score.coding - a.score.coding)[0]?.id
+          || S.models.find(m => m.seatable)?.id || null;
   paint();
   if(!S.key_set) $("#dKey").showModal();
   $("#input").focus();

@@ -1,7 +1,6 @@
 {
-  "captured": "2026-09-04T18:50:53Z",
+  "captured": "2026-09-04T19:39:22Z",
   "source": "https://openrouter.ai/api/v1/models",
-  "note": "Rows whose prompt AND completion price are both 0. Free models come and go - refresh with `freeboard refresh`.",
   "total_models_seen": 427,
   "models": [
     {
@@ -27,7 +26,12 @@
         "tools",
         "top_k",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 20.2,
+        "coding": 36.5,
+        "agentic": 3.1
+      }
     },
     {
       "id": "dots-studio/dots-3-note-preview:free",
@@ -50,7 +54,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "google/gemma-4-26b-a4b-it:free",
@@ -74,7 +83,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 26.1,
+        "coding": 39.3,
+        "agentic": 11
+      }
     },
     {
       "id": "google/gemma-4-31b-it:free",
@@ -98,7 +112,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 29.7,
+        "coding": 43.4,
+        "agentic": 14.4
+      }
     },
     {
       "id": "google/lyria-3-clip-preview",
@@ -117,7 +136,12 @@
         "seed",
         "temperature",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "google/lyria-3-pro-preview",
@@ -136,11 +160,16 @@
         "seed",
         "temperature",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "inclusionai/ling-3.0-flash-fin:free",
-      "name": "Ling 3.0 Flash Fin (free)",
+      "name": "inclusionAI: Ling 3.0 Flash Fin (free)",
       "family": "inclusionai",
       "context_length": 262144,
       "max_completion_tokens": 32768,
@@ -164,7 +193,12 @@
         "top_k",
         "top_logprobs",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "inclusionai/ling-3.0-flash-sante:free",
@@ -192,7 +226,12 @@
         "top_k",
         "top_logprobs",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "liquid/lfm-2.5-2.6b:free",
@@ -224,7 +263,12 @@
         "top_k",
         "top_logprobs",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "minimax/minimax-m2.7:free",
@@ -246,7 +290,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 38.9,
+        "coding": 52.6,
+        "agentic": 25.9
+      }
     },
     {
       "id": "minimax/minimax-m3:free",
@@ -270,7 +319,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 45.4,
+        "coding": 58.6,
+        "agentic": 36.1
+      }
     },
     {
       "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
@@ -294,7 +348,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": 13.8,
+        "agentic": null
+      }
     },
     {
       "id": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -318,7 +377,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 25.7,
+        "coding": 37.7,
+        "agentic": 8.8
+      }
     },
     {
       "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -340,7 +404,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 38.3,
+        "coding": 49.3,
+        "agentic": 27.5
+      }
     },
     {
       "id": "nvidia/nemotron-3.5-content-safety:free",
@@ -360,7 +429,12 @@
         "seed",
         "temperature",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "nvidia/nemotron-3.5-lightning:free",
@@ -381,7 +455,12 @@
         "tool_choice",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 23.6,
+        "coding": 26.8,
+        "agentic": 13.8
+      }
     },
     {
       "id": "openrouter/free",
@@ -415,7 +494,12 @@
         "top_k",
         "top_logprobs",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "poolside/laguna-s-2.1:free",
@@ -434,7 +518,12 @@
         "temperature",
         "tool_choice",
         "tools"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "poolside/laguna-xs-2.1:free",
@@ -453,7 +542,12 @@
         "temperature",
         "tool_choice",
         "tools"
-      ]
+      ],
+      "score": {
+        "thinking": null,
+        "coding": null,
+        "agentic": null
+      }
     },
     {
       "id": "thinkingmachines/inkling-small:free",
@@ -479,7 +573,12 @@
         "temperature",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 41.2,
+        "coding": 52.9,
+        "agentic": 31.9
+      }
     },
     {
       "id": "thinkingmachines/inkling:free",
@@ -505,7 +604,12 @@
         "temperature",
         "tools",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 42.3,
+        "coding": 52.1,
+        "agentic": 34.1
+      }
     },
     {
       "id": "z-ai/glm-5.2:free",
@@ -535,7 +639,12 @@
         "tools",
         "top_k",
         "top_p"
-      ]
+      ],
+      "score": {
+        "thinking": 52.6,
+        "coding": 68.8,
+        "agentic": 45.7
+      }
     }
   ]
 }

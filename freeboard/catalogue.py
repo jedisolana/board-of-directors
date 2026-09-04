@@ -49,6 +49,11 @@ def is_free(model: dict) -> bool:
 def _normalise(m: dict) -> dict:
     tp = m.get("top_provider") or {}
     arch = m.get("architecture") or {}
+    # Artificial Analysis scores, when OpenRouter has them. THREE separate indices, because
+    # "good" is not one thing: a coding specialist can sit near the top on code and at the
+    # very bottom on agentic work. Missing is common and must stay missing -- a model with no
+    # score is unmeasured, not bad, and filling it with a zero would rank it last on purpose.
+    aa = ((m.get("benchmarks") or {}).get("artificial_analysis") or {})
     return {
         "id": m["id"],
         "name": m.get("name") or m["id"],
@@ -58,6 +63,9 @@ def _normalise(m: dict) -> dict:
         "is_moderated": tp.get("is_moderated"),
         "input_modalities": arch.get("input_modalities") or [],
         "supported_parameters": sorted(m.get("supported_parameters") or []),
+        "score": {"thinking": aa.get("intelligence_index"),
+                  "coding": aa.get("coding_index"),
+                  "agentic": aa.get("agentic_index")},
     }
 
 
@@ -122,6 +130,20 @@ def deliberative(models: list[dict]) -> list[dict]:
             continue
         out.append(m)
     return out
+
+
+def score(m: dict, kind: str = "coding") -> float | None:
+    """One benchmark index, or None when the model has never been measured."""
+    return (m.get("score") or {}).get(kind)
+
+
+def rank(models: list[dict], kind: str = "coding") -> list[dict]:
+    """Best first on one index. Unmeasured models go last, in name order, never zeroed."""
+    scored = [m for m in models if score(m, kind) is not None]
+    unscored = [m for m in models if score(m, kind) is None]
+    scored.sort(key=lambda m: -score(m, kind))
+    unscored.sort(key=lambda m: m["id"])
+    return scored + unscored
 
 
 def speaks_json(m: dict) -> bool:
