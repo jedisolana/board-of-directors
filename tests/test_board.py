@@ -661,9 +661,9 @@ class TheOutputCap(unittest.TestCase):
             t = OpenRouterTransport("sk-or-v1-" + "a" * 64, meter=False)
             orig = OpenRouterTransport._payload
 
-            def spy(model, messages, want_json, max_tokens, temperature, _s=sent):
+            def spy(model, messages, want_json, max_tokens, temperature, _s=sent, _o=orig):
                 _s["max_tokens"] = max_tokens
-                return orig(model, messages, want_json, max_tokens, temperature)
+                return _o(model, messages, want_json, max_tokens, temperature)
 
             OpenRouterTransport._payload = staticmethod(spy)
             try:
