@@ -266,9 +266,28 @@ class _Server(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
-def serve(port: int = 8420, open_browser: bool = True) -> None:
-    _models()
+def _in_use(port: int) -> bool:
+    import socket
+    with socket.socket() as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def serve(port: int = 8420, open_browser: bool = True) -> int:
+    """Start the console. Returns a shell exit code rather than raising a traceback.
+
+    Running it twice is the single most likely mistake, and the bare OSError for it is
+    `[Errno 48] Address already in use` under twelve lines of socketserver internals. That is
+    a stack trace as an error message: it names the syscall that failed and not one thing the
+    reader can do. It should say the console is already running, and where.
+    """
     url = f"http://127.0.0.1:{port}/"
+    if _in_use(port):
+        print(f"\n  Something is already listening on port {port}.")
+        print(f"  If it is freeboard, it is already running: {url}")
+        print(f"  Otherwise start this one somewhere else:  freeboard ui --port {port + 1}\n")
+        return 1
+
+    _models()
     with _Server(("127.0.0.1", port), Handler) as httpd:
         print(f"\n  freeboard console -> {url}   (build {build_stamp()})")
         print("  local only: 127.0.0.1, your key stays on this machine.")
@@ -279,3 +298,4 @@ def serve(port: int = 8420, open_browser: bool = True) -> None:
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\n  stopped.\n")
+    return 0

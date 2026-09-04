@@ -301,14 +301,14 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("ui", help="open the console in your browser (local only)")
     u.add_argument("--port", type=int, default=8420)
     u.add_argument("--no-open", action="store_true", help="do not open a browser")
-    u.set_defaults(fn=lambda a: server.serve(a.port, not a.no_open) or 0)
+    u.set_defaults(fn=lambda a: server.serve(a.port, not a.no_open))
 
     r = sub.add_parser("refresh", help="re-read the live free-model catalogue")
     r.set_defaults(fn=cmd_refresh)
 
     args = p.parse_args(argv)
     if not args.cmd:                      # bare `freeboard` -> open the console
-        return server.serve() or 0
+        return server.serve()
     rc = args.fn(args)
     if args.cmd == "status":              # a nudge toward whatever is still missing
         if not config.api_key()[0]:
