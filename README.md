@@ -9,12 +9,11 @@ OpenRouter's free tier, so it costs nothing to try.
 ![The console](docs/console.png)
 
 ```bash
-git clone https://github.com/YOUR-NAME/freeboard && cd freeboard
 python3 -m freeboard.cli
 ```
 
-That's it. No dependencies, no build step, no key required to look around — it opens a
-console in your browser, served from your own machine.
+From a clone of this repo, that's the whole thing. No dependencies, no build step, no key
+required to look around — it opens a console in your browser, served from your own machine.
 
 ---
 
