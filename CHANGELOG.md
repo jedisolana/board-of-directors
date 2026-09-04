@@ -47,5 +47,5 @@ First release.
 - Renaming the project carries an existing install's key, tier and call count across.
 
 ### Under it
-- Standard library only. 72 tests, no network. Ruff clean. CI on Ubuntu and macOS across
+- Standard library only. 71 tests, no network. Ruff clean. CI on Ubuntu and macOS across
   Python 3.10, 3.12 and 3.13.

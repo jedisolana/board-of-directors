@@ -246,7 +246,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-72 tests, no network, no dependencies. Most of them are failure paths, because a board that
+71 tests, no network, no dependencies. Most of them are failure paths, because a board that
 works when every model answers is the easy half. They cover what happens when a member is
 throttled, when the seam sees a key, when the pool has no independent members left, when two
 consoles write the counter at once — and, after being caught by them the hard way, whether the
