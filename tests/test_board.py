@@ -10,9 +10,11 @@ import re
 import shutil
 import tempfile
 import threading
+import time
+import typing
 import unittest
 
-from boardofdirectors import board, budget, catalogue, config, redact, seats, usage
+from boardofdirectors import board, budget, catalogue, config, redact, seats, sessions, usage
 from boardofdirectors.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
 
 
@@ -540,6 +542,105 @@ class TheRename(unittest.TestCase):
             importlib.reload(config)
             shutil.rmtree(old, ignore_errors=True)
             shutil.rmtree(new, ignore_errors=True)
+
+
+class SavedSessions(unittest.TestCase):
+    """A board turn costs 9-11 of a 50-a-day allowance. Losing it on reload is not acceptable."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self._old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        importlib.reload(sessions)
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self._old
+        shutil.rmtree(self.home, ignore_errors=True)
+        importlib.reload(config)
+        importlib.reload(sessions)
+
+    TURNS: typing.ClassVar[list] = [
+        {"role": "user", "content": "Should we use Postgres or SQLite?"},
+        {"role": "assistant", "board": {
+            "kind": "decide", "chair": "x/chair", "calls": 9,
+            "answers": [{"label": "Member A", "model": "a/one", "text": "Postgres."},
+                        {"label": "Member B", "model": "b/one", "text": "SQLite."}],
+            "failures": [{"model": "c/one", "reason": "Rate limit exceeded (429)"}],
+            "decision": "2-0 for Postgres."}},
+    ]
+
+    def test_the_whole_proceeding_survives_a_round_trip(self):
+        """Storing only the verdict would reopen looking unanimous - the exact dishonesty the
+        board exists to prevent. Every member, and every member that failed, comes back."""
+        sid = sessions.new_id()
+        sessions.save(sid, self.TURNS)
+        back = sessions.load(sid)
+        b = back["turns"][1]["board"]
+        self.assertEqual(len(b["answers"]), 2)
+        self.assertEqual(b["failures"][0]["model"], "c/one")
+        self.assertEqual(b["decision"], "2-0 for Postgres.")
+
+    def test_the_title_is_the_question(self):
+        sid = sessions.new_id()
+        sessions.save(sid, self.TURNS)
+        self.assertEqual(sessions.load(sid)["title"], "Should we use Postgres or SQLite?")
+
+    def test_saving_twice_keeps_the_original_creation_time(self):
+        sid = sessions.new_id()
+        sessions.save(sid, self.TURNS)
+        created = sessions.load(sid)["created"]
+        sessions.save(sid, self.TURNS + [{"role": "user", "content": "and backups?"}])
+        after = sessions.load(sid)
+        self.assertEqual(after["created"], created)
+        self.assertGreaterEqual(after["updated"], created)
+        self.assertEqual(len(after["turns"]), 3)
+
+    def test_listing_is_newest_first(self):
+        for q in ("first", "second", "third"):
+            sessions.save(sessions.new_id(), [{"role": "user", "content": q}])
+        self.assertEqual([r["title"] for r in sessions.listing()], ["third", "second", "first"])
+
+    def test_a_session_id_cannot_escape_the_directory(self):
+        """It is ours, but it still arrives from an HTTP request."""
+        for bad in ("../../etc/passwd", "/etc/passwd", "..", ""):
+            with self.subTest(bad=bad):
+                try:
+                    p = sessions._path(bad)
+                except ValueError:
+                    continue
+                self.assertTrue(os.path.abspath(p).startswith(os.path.abspath(sessions.DIR)))
+
+    def test_export_keeps_the_dissent_and_the_failures(self):
+        """A board's output is only worth keeping if the disagreement comes with it."""
+        sid = sessions.new_id()
+        sessions.save(sid, self.TURNS)
+        md = sessions.as_markdown(sessions.load(sid))
+        self.assertIn("Member A", md)
+        self.assertIn("Member B", md)
+        self.assertIn("not counted as agreement", md)
+        self.assertIn("c/one", md)
+        self.assertIn("2-0 for Postgres.", md)
+
+    def test_deleting_removes_it(self):
+        sid = sessions.new_id()
+        sessions.save(sid, self.TURNS)
+        self.assertTrue(sessions.delete(sid))
+        self.assertIsNone(sessions.load(sid))
+        self.assertEqual(sessions.listing(), [])
+
+    def test_old_sessions_are_pruned(self):
+        sessions.MAX_SESSIONS = 3
+        try:
+            for i in range(6):
+                sessions.save(sessions.new_id(), [{"role": "user", "content": f"q{i}"}])
+                time.sleep(0.002)
+            self.assertLessEqual(len(sessions.listing()), 3)
+        finally:
+            importlib.reload(sessions)
 
 
 class ThePage(unittest.TestCase):

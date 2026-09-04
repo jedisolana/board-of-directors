@@ -23,7 +23,7 @@ import threading
 import time
 import webbrowser
 
-from . import board, budget, catalogue, codebase, config, redact, seats, usage
+from . import board, budget, catalogue, codebase, config, redact, seats, sessions, usage
 from .transport import OfflineTransport, OpenRouterTransport
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -43,6 +43,14 @@ def build_stamp() -> str:
 
 
 CATALOGUE_TTL = 15 * 60          # free models expire; a console left open must notice
+
+
+def _slug(title: str) -> str:
+    keep = [c.lower() if c.isalnum() else "-" for c in title]
+    out = "".join(keep).strip("-")
+    while "--" in out:
+        out = out.replace("--", "-")
+    return (out or "session")[:60]
 
 
 def _models(refresh: bool = False) -> list[dict]:
@@ -204,6 +212,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/api/sessions"):
+            return self._json({"sessions": sessions.listing()})
         if self.path.startswith("/api/projects"):
             return self._json({"projects": codebase.suggest()})
         if self.path.startswith("/api/state"):
@@ -245,6 +255,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/board":
                 config.set_board(list(payload.get("board") or []))
                 return self._json(_state())
+            if self.path == "/api/session/save":
+                sid = payload.get("id") or sessions.new_id()
+                sessions.save(sid, payload.get("turns") or [], payload.get("meta") or {})
+                return self._json({"id": sid, "sessions": sessions.listing()})
+            if self.path == "/api/session/load":
+                doc = sessions.load(payload.get("id", ""))
+                return self._json(doc or {"error": "no such session"})
+            if self.path == "/api/session/delete":
+                sessions.delete(payload.get("id", ""))
+                return self._json({"sessions": sessions.listing()})
+            if self.path == "/api/session/export":
+                doc = sessions.load(payload.get("id", ""))
+                if not doc:
+                    return self._json({"error": "no such session"})
+                return self._json({"markdown": sessions.as_markdown(doc),
+                                   "filename": _slug(doc.get("title", "session")) + ".md"})
             if self.path == "/api/scan":
                 sc = codebase.scan(payload["path"])
                 return self._json(sc.summary())
