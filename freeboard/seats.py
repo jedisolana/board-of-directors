@@ -11,7 +11,7 @@ than there are families, you get fewer seats and a reason -- never a padded boar
 """
 from __future__ import annotations
 
-from . import catalogue
+from . import catalogue, config
 
 
 class NoQuorum(Exception):
@@ -33,7 +33,7 @@ def seat(models: list[dict], size: int = 5, need_json: bool = False,
     `prompt_tokens`/`completion_tokens` apply the asymmetric fit check, so a member is never
     seated for a job it will refuse halfway through.
     """
-    exclude = exclude or set()
+    exclude = set(exclude or set()) | set(config.unusable())
     pool = []
     for m in catalogue.deliberative(models):
         if m["id"] in exclude:
@@ -70,13 +70,13 @@ def quorum(members: list[dict], minimum: int = 3) -> None:
 
 
 def chair(models: list[dict], members: list[dict], prompt_tokens: int = 0,
-          completion_tokens: int = 0) -> dict:
+          completion_tokens: int = 0, exclude: set[str] | None = None) -> dict:
     """The chair reads every member's answer at once, so it is chosen for CONTEXT.
 
     It is also excluded from the members it will judge: a model that both votes and counts
     the votes is not a chair, it is a thumb on the scale.
     """
-    seated = {m["id"] for m in members}
+    seated = {m["id"] for m in members} | set(exclude or set()) | set(config.unusable())
     pool = [m for m in catalogue.deliberative(models)
             if m["id"] not in seated
             and catalogue.fits(m, prompt_tokens, completion_tokens)[0]]

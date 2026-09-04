@@ -125,7 +125,7 @@ def _single(payload: dict) -> dict:
     if code:
         # The code goes in ALONGSIDE what was typed, never instead of it. Replacing the last
         # message silently drops the actual question whenever a folder is attached.
-        msgs = msgs + [{"role": "user", "content": code}]
+        msgs = [*msgs, {"role": "user", "content": code}]
     r = transport.ask(model, msgs)
     if not r.ok:
         return {"mode": "single", "model": mid, "failed": True, "reason": r.reason, "calls": 1}
@@ -157,15 +157,16 @@ def _board(payload: dict) -> dict:
     if code:
         question = code
 
-    ordered = members + [m for m in models if m["id"] not in {x["id"] for x in members}]
-    s = board.ask_in_context(question, prior=prior, transport=transport, models=ordered,
-                             size=len(members), minimum=int(payload.get("minimum", 3)),
+    s = board.ask_in_context(question, prior=prior, transport=transport, models=models,
+                             members=members, minimum=int(payload.get("minimum", 3)),
                              peer_review=bool(payload.get("peer_review", True)),
                              kind=payload.get("kind", "decide"))
     return {
         "mode": "board", "live": live, "kind": s.kind,
-        "members": [m["id"] for m in members],
+        # the members the SESSION used, not the ones that were requested
+        "members": [m["id"] for m in s.members],
         "chair": s.chair_model["id"],
+        "chair_failures": s.chair_failures,
         "answers": [{"label": next((k for k, v in s.labels.items() if v == a.model), "?"),
                      "model": a.model, "text": a.text} for a in s.answers],
         "failures": [{"model": f.model, "reason": f.reason} for f in s.failures],

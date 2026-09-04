@@ -10,6 +10,7 @@ because `status` says so.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 
@@ -20,10 +21,8 @@ ENV_KEY = "OPENROUTER_API_KEY"
 
 def _ensure_home() -> None:
     os.makedirs(HOME, mode=0o700, exist_ok=True)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(HOME, 0o700)
-    except OSError:
-        pass
 
 
 def load() -> dict:
@@ -142,6 +141,34 @@ def set_board(members: list[str], name: str = "default") -> str:
     cfg = load()
     cfg.setdefault("boards", {})[name] = members
     return save(cfg)
+
+
+def unusable() -> dict:
+    """Models the catalogue calls free that the API then refuses.
+
+    `thinkingmachines/inkling-small:free` is listed free, priced zero, and answers a real
+    request with 403 "only available on agentic harnesses. Try plugging it into a coding
+    agent or productivity app". The catalogue cannot be trusted about usability, only about
+    price - so usability is learned from what actually happened and remembered, otherwise
+    the same model is chosen as chair on every single run.
+    """
+    return load().get("unusable") or {}
+
+
+def mark_unusable(model_id: str, why: str) -> None:
+    cfg = load()
+    cfg.setdefault("unusable", {})[model_id] = {"why": why, "at": __import__("time").time()}
+    save(cfg)
+
+
+def forget_unusable(model_id: str | None = None) -> None:
+    """A gate can be lifted; nothing here is permanent."""
+    cfg = load()
+    if model_id is None:
+        cfg.pop("unusable", None)
+    else:
+        (cfg.get("unusable") or {}).pop(model_id, None)
+    save(cfg)
 
 
 def tier() -> float:

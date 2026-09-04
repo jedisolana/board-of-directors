@@ -59,7 +59,7 @@ class Seating(unittest.TestCase):
         self.assertNotIn("delta/one:free", {m["id"] for m in b})   # out cap is 2000
 
     def test_non_deliberative_models_are_not_seated(self):
-        pool = POOL + [model("openrouter/free"), model("google/lyria-3-pro-preview")]
+        pool = [*POOL, model("openrouter/free"), model("google/lyria-3-pro-preview")]
         ids = {m["id"] for m in seats.seat(pool, size=99)}
         self.assertNotIn("openrouter/free", ids)
         self.assertNotIn("google/lyria-3-pro-preview", ids)
@@ -70,9 +70,7 @@ class Seating(unittest.TestCase):
         `nvidia/nemotron-3.5-content-safety:free` is a guardrail classifier. It slipped past
         the list because the list held the bare id and the catalogue ships the `:free` one.
         """
-        pool = POOL + [model("nvidia/nemotron-3.5-content-safety:free"),
-                       model("openrouter/free:free"),
-                       model("google/lyria-3-clip-preview:free")]
+        pool = [*POOL, model("nvidia/nemotron-3.5-content-safety:free"), model("openrouter/free:free"), model("google/lyria-3-clip-preview:free")]
         ids = {m["id"] for m in seats.seat(pool, size=99)}
         self.assertNotIn("nvidia/nemotron-3.5-content-safety:free", ids)
         self.assertNotIn("openrouter/free:free", ids)
@@ -253,6 +251,68 @@ class BoardSession(unittest.TestCase):
         self.assertEqual(set(s.labels.values()), {a.model for a in s.answers})
 
 
+class AChosenBoardIsHonoured(unittest.TestCase):
+    """A hand-picked board was silently replaced by the automatic pick.
+
+    `ask_in_context` re-seated unconditionally, so choosing five models got you whichever
+    five the ranking preferred - and the caller was handed back the list it had ASKED for,
+    so the substitution was invisible from both the API and the screen. The first test
+    written for this asked the response which members it wanted rather than which it used,
+    and passed while the bug was live.
+    """
+
+    def test_the_chosen_members_are_the_ones_that_answer(self):
+        want = [POOL[2], POOL[4], POOL[5]]      # deliberately NOT what seat() would rank first
+        t = OfflineTransport()
+        s = board.ask_in_context("go", transport=t, models=POOL, members=want)
+        self.assertEqual([m["id"] for m in s.members], [m["id"] for m in want])
+        asked = {mid for mid, _ in t.calls}
+        for m in want:
+            self.assertIn(m["id"], asked, "a chosen member was never asked")
+
+    def test_the_automatic_pick_would_have_differed(self):
+        """Guards the test above: if seat() happened to agree, it would prove nothing."""
+        want = [POOL[2], POOL[4], POOL[5]]
+        auto = seats.seat(POOL, size=3)
+        self.assertNotEqual([m["id"] for m in want], [m["id"] for m in auto])
+
+    def test_no_members_given_still_auto_seats(self):
+        s = board.ask_in_context("go", transport=OfflineTransport(), models=POOL, size=4)
+        self.assertEqual(len(s.members), 4)
+
+
+class TheChairCanFail(unittest.TestCase):
+    """Three good answers were thrown away because one model refused to chair.
+
+    A real run: three members answered at length, two were rate limited, and the chair
+    returned 403 "only available on agentic harnesses" - so the session reported NO QUORUM
+    and the answers went unsynthesised. One model's refusal spoke for the whole board, which
+    is the same mistake as counting a throttled member as a vote.
+    """
+
+    def test_it_tries_another_chair(self):
+        first = seats.chair(POOL, seats.seat(POOL, size=3))
+        t = OfflineTransport(fail={first["id"]})
+        s = board.ask_in_context("go", transport=t, models=POOL, size=3)
+        self.assertIsNone(s.no_quorum)
+        self.assertIsNotNone(s.decision)
+        self.assertNotEqual(s.chair_model["id"], first["id"])
+        self.assertEqual(s.chair_failures[0]["model"], first["id"])
+
+    def test_when_no_model_can_chair_the_answers_survive_the_message(self):
+        t = OfflineTransport(fail={m["id"] for m in POOL[3:]})
+        s = board.ask_in_context("go", transport=t, models=POOL, size=3)
+        if s.no_quorum:
+            self.assertIn("answered", s.no_quorum)
+            self.assertGreaterEqual(len(s.answers), 1)
+
+    def test_the_report_names_the_chair_that_actually_wrote_it(self):
+        first = seats.chair(POOL, seats.seat(POOL, size=3))
+        s = board.ask_in_context("go", transport=OfflineTransport(fail={first["id"]}),
+                                 models=POOL, size=3)
+        self.assertIn(s.chair_model["id"], s.report())
+
+
 class TwoKindsOfQuestion(unittest.TestCase):
     """"Should we build it?" and "build it" need opposite prompts.
 
@@ -282,7 +342,7 @@ class TwoKindsOfQuestion(unittest.TestCase):
         self.assertIn("Do not review the attempts", chair)
 
     def test_the_make_ranking_prefers_doing_over_describing(self):
-        rank = [p for p in self._prompts("make") if "Rank them" in p][0]
+        rank = next(p for p in self._prompts("make") if "Rank them" in p)
         self.assertIn("ACTUALLY DOES THE TASK", rank)
 
     def test_the_session_records_which_kind_it_was(self):
@@ -337,9 +397,8 @@ class TheKeyBox(unittest.TestCase):
 
     def test_whitespace_anywhere_is_refused(self):
         for k in ("sk-or-v1 abc", "sk-or-v1-abc\ndef", "sk or v1"):
-            with self.subTest(k=k[:12]):
-                with self.assertRaises(config.BadKey):
-                    config.check_key(k)
+            with self.subTest(k=k[:12]), self.assertRaises(config.BadKey):
+                config.check_key(k)
 
     def test_a_normal_key_draws_no_warning(self):
         self.assertEqual(config.looks_unusual("sk-or-v1-" + "a" * 64), "")
@@ -457,8 +516,9 @@ class ThePage(unittest.TestCase):
     def test_the_endpoints_the_page_calls_are_served(self):
         h = self.page()
         called = set(re.findall(r'"(/api/[a-z_]+)"', h))
-        served = set(re.findall(r'self\.path(?:\s*==\s*|\.startswith\()\s*"(/api/[a-z_]+)"',
-                                open(os.path.join(os.path.dirname(self.PAGE), "..", "server.py")).read()))
+        with open(os.path.join(os.path.dirname(self.PAGE), "..", "server.py")) as fh:
+            src = fh.read()
+        served = set(re.findall(r'self\.path(?:\s*==\s*|\.startswith\()\s*"(/api/[a-z_]+)"', src))
         self.assertEqual(sorted(called - served), [], "page calls endpoints the server does not serve")
 
 

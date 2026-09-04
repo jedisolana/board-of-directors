@@ -96,6 +96,7 @@ class Session:
     answers: list[Answer] = field(default_factory=list)
     failures: list[Failure] = field(default_factory=list)
     rankings: list[Answer] = field(default_factory=list)
+    chair_failures: list[dict] = field(default_factory=list)
     labels: dict[str, str] = field(default_factory=dict)   # label -> model id
     kind: str = "decide"
     decision: str | None = None
@@ -159,7 +160,8 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
 def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    transport: Transport | None = None, models: list[dict] | None = None,
                    size: int = 5, minimum: int = 3, peer_review: bool = True,
-                   live_catalogue: bool = True, kind: str = "decide") -> Session:
+                   live_catalogue: bool = True, kind: str = "decide",
+                   members: list[dict] | None = None) -> Session:
     """A board session that picks up an existing conversation.
 
     This is what makes the mode switch worth having. You talk to ONE model for a while at one
@@ -179,7 +181,11 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
         models = catalogue.load(live=live_catalogue)["models"]
     transport = transport or OfflineTransport()
 
-    members = seats.seat(models, size=size)
+    # A board CHOSEN by the caller is used exactly as chosen. This used to re-seat
+    # unconditionally, so a hand-picked board was quietly replaced by the automatic pick
+    # whenever the two differed - and the caller was handed back the list it had ASKED for,
+    # which is why it looked like it had been honoured.
+    members = members or seats.seat(models, size=size)
     seats.quorum(members, minimum=minimum)
     chair_model = seats.chair(models, members)
     s = Session(question=question, members=members, chair_model=chair_model, kind=kind)
@@ -188,7 +194,7 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     make = (kind == "make")
     prompt = (MAKE_PROMPT if make else ANSWER_PROMPT).format(q=question)
     for m in members:
-        r = transport.ask(m, prior + [{"role": "user", "content": prompt}])
+        r = transport.ask(m, [*prior, {"role": "user", "content": prompt}])
         (s.answers if r.ok else s.failures).append(r)
 
     # A board is the members who actually spoke. Silence is not consent.
@@ -206,7 +212,7 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
         for m in members:
             if not any(a.model == m["id"] for a in s.answers):
                 continue          # a member who did not answer does not get to rank
-            r = transport.ask(m, prior + [{"role": "user", "content": rp}])
+            r = transport.ask(m, [*prior, {"role": "user", "content": rp}])
             if r.ok:
                 s.rankings.append(r)
 
@@ -214,12 +220,26 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     ranked = "\n\n".join(f"--- ranking by a member ---\n{r.text}" for r in s.rankings) or "(none)"
     cp = (MAKE_CHAIR_PROMPT if make else CHAIR_PROMPT).format(
         q=question, answers=blind_text, rankings=ranked)
-    r = transport.ask(chair_model, prior + [{"role": "user", "content": cp}])
-    if r.ok:
-        s.decision = r.text
-    else:
-        s.no_quorum = f"the chair could not answer ({r.reason}); no decision was synthesised"
-    return s
+    tried, reason = [], ""
+    while True:
+        r = transport.ask(chair_model, [*prior, {"role": "user", "content": cp}])
+        if r.ok:
+            s.decision = r.text
+            s.chair_model = chair_model
+            return s
+        # The members have already spoken and their answers are worth keeping. Throwing the
+        # whole session away because one model refused to chair it is the same mistake as
+        # counting a throttled member as a vote: it lets one failure speak for the board.
+        tried.append(chair_model["id"])
+        reason = r.reason
+        s.chair_failures.append({"model": chair_model["id"], "reason": r.reason})
+        try:
+            chair_model = seats.chair(models, members, exclude=set(tried))
+        except seats.NoQuorum:
+            s.no_quorum = (f"{len(s.answers)} member(s) answered, but no free model could "
+                           f"chair the session (last: {reason}). Their answers are above; "
+                           f"the synthesis is missing, not the board.")
+            return s
 
 
 # A cheap guess at which kind of question this is, used only to SUGGEST a mode in the UI.

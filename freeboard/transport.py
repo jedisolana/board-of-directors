@@ -24,6 +24,7 @@ The other three things this handles, all of them documented behaviour rather tha
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import random
 import time
@@ -31,9 +32,16 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from . import usage
+from . import config, usage
 
 API = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _as_int(v) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _why(status: int, raw: str) -> str:
@@ -127,10 +135,8 @@ class OpenRouterTransport(Transport):
         rejected request still spent one of your allowance."""
         if not self.meter:
             return
-        try:
-            usage.record(model, ok)
-        except Exception:
-            pass          # a broken counter must never break a board session
+        with contextlib.suppress(Exception):
+            usage.record(model, ok)          # a broken counter must never break a session
 
     def _headers(self) -> dict:
         h = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json",
@@ -180,18 +186,27 @@ class OpenRouterTransport(Transport):
                     # The ONLY moment OpenRouter states the real numbers. Successful responses
                     # carry no X-RateLimit-* headers at all, so this is the one chance to stop
                     # estimating -- take it whether or not we go on to retry.
+                    #
+                    # The headers are copied out FIRST. Python unbinds the `as e` name at the
+                    # end of an except block, so a helper that closes over `e` works only for
+                    # as long as it is called inside the block - a trap that stays quiet until
+                    # someone moves the call, and then breaks the one path that must not break.
                     self._count(model["id"], False)
-                    def _int(h):
-                        try: return int(e.headers.get(h))
-                        except (TypeError, ValueError): return None
-                    usage.learn_from_429(_int("X-RateLimit-Limit"), _int("X-RateLimit-Remaining"),
-                                         e.headers.get("X-RateLimit-Reset"))
+                    headers = dict(e.headers.items()) if e.headers else {}
+                    usage.learn_from_429(_as_int(headers.get("X-RateLimit-Limit")),
+                                         _as_int(headers.get("X-RateLimit-Remaining")),
+                                         headers.get("X-RateLimit-Reset"))
                 if e.code == 429 and attempt < self.max_retries - 1:
                     self._sleep(self._backoff(attempt, retry_after))
                     last = "rate limited"
                     continue
                 if e.code != 429:
                     self._count(model["id"], False)
+                if e.code == 403 and ("harness" in raw.lower() or "not available" in raw.lower()):
+                    # The catalogue said free and usable; the API says otherwise. Remember it,
+                    # or this model is picked again on every run.
+                    with contextlib.suppress(Exception):
+                        config.mark_unusable(model["id"], _why(e.code, raw))
                 if e.code == 402 or "negative" in raw.lower():
                     # A negative balance blocks FREE models too -- an easy one to misread as
                     # the free model having gone away.

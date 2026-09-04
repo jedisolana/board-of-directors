@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
-import os
 import sys
 
 from . import board, budget, catalogue, config, redact, seats, server, usage

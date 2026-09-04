@@ -43,7 +43,9 @@ def _locked():
     the dangerous direction here: it reports headroom that is not there.
     """
     config._ensure_home()
-    fh = open(LEDGER + ".lock", "w")
+    # Held open deliberately across the yield: the advisory lock lives as long as the
+    # descriptor does, so a context manager here would release it before the caller writes.
+    fh = open(LEDGER + ".lock", "w")  # noqa: SIM115
     try:
         fcntl.flock(fh, fcntl.LOCK_EX)
         yield
