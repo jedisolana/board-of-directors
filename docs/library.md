@@ -22,7 +22,9 @@ That seats a board from the live free catalogue, asks each member independently,
 each other blind, and returns a chair's decision. No key needed to *try* it — without one you
 get the offline stub, which answers deterministically so tests and demos cost nothing.
 
-With a key set (`OPENROUTER_API_KEY`, or `board setup`), it runs for real.
+With a key set (`OPENROUTER_API_KEY` in the environment, or `board setup` once), it runs for
+real. The key is a free OpenRouter key from [openrouter.ai/keys](https://openrouter.ai/keys) —
+an account there takes two minutes and no card.
 
 ---
 

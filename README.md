@@ -27,6 +27,22 @@ Or from a clone: `python3 -m boardofdirectors.cli` runs it with nothing installe
 That's the whole thing. No dependencies, no build step, no key required to look around — it
 opens a console in your browser, served from your own machine.
 
+## You need one thing: a free OpenRouter key
+
+The models are OpenRouter's, so the board talks to them with **your** OpenRouter key. There is
+no account with us — there is no us. Three steps, about two minutes, no card:
+
+1. Make a free account at **[openrouter.ai](https://openrouter.ai)** (sign in with Google,
+   GitHub, or an email).
+2. Create a key at **[openrouter.ai/keys](https://openrouter.ai/keys)**. It starts with
+   `sk-or-v1-`.
+3. Paste it into the console when it asks — or run `board setup` in the terminal.
+
+The key is saved to a file only you can read, in `~/.board-of-directors` on your machine, and
+it is sent to OpenRouter and nowhere else. The free tier gives **50 requests a day**; putting
+**$10 of credit on the account once** raises that to **1,000 a day, permanently** — you never
+have to spend the ten dollars. Details under *[What the free tier gives you](#what-the-free-tier-gives-you)*.
+
 > **Why `pipx` and not `pip`.** Homebrew, Debian and Ubuntu all ship a Python that refuses a
 > bare `pip install` now ("externally managed"). `pipx` is the standard way to install a
 > *program* rather than a library: it gets its own environment and a command on your PATH.
