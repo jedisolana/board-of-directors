@@ -23,6 +23,7 @@ from boardofdirectors import (
     cost,
     openai_api,
     patch,
+    server,
     redact,
     seats,
     sessions,
@@ -1143,6 +1144,44 @@ class ResettingTheCount(unittest.TestCase):
         usage.reset_today()
         self.assertEqual(usage.status(0).calls, 0)
         self.assertEqual(len([r for r in usage._load()["days"] if r == "2026-09-01"]), 1)
+
+
+class ReachableFromABrowser(unittest.TestCase):
+    """"No auth is fine, it is only on localhost" skips over the browser.
+
+    Loopback keeps the NETWORK out. It does not stop a page you merely visit from POSTing to
+    127.0.0.1 - the page cannot read the reply without CORS, and none is sent, but a
+    fire-and-forget POST is enough to spend your balance or write a file. Nor does it stop DNS
+    rebinding, where a hostname the attacker controls is re-pointed at 127.0.0.1 so their page
+    is same-origin with this server.
+    """
+
+    def test_a_cross_site_origin_is_refused(self):
+        for origin in ("https://evil.example", "http://evil.example:8420",
+                       "https://127.0.0.1.evil.example"):
+            with self.subTest(origin=origin):
+                self.assertFalse(server._origin_ok(origin, 8420))
+
+    def test_the_page_itself_is_allowed(self):
+        for origin in ("http://127.0.0.1:8420", "http://localhost:8420"):
+            with self.subTest(origin=origin):
+                self.assertTrue(server._origin_ok(origin, 8420))
+
+    def test_no_origin_at_all_is_allowed(self):
+        """Curl, a script, an SDK - none of them is a browser, and none sends Origin."""
+        self.assertTrue(server._origin_ok(None, 8420))
+        self.assertTrue(server._origin_ok("", 8420))
+
+    def test_a_rebound_hostname_is_refused(self):
+        """Origin alone cannot catch this: after rebinding, the attacker's page IS the origin."""
+        for host in ("attacker.example", "attacker.example:8420", "192.168.1.9:8420"):
+            with self.subTest(host=host):
+                self.assertFalse(server._host_ok(host))
+
+    def test_loopback_hostnames_are_allowed(self):
+        for host in ("127.0.0.1:8420", "localhost:8420", "localhost", "[::1]:8420", None):
+            with self.subTest(host=host):
+                self.assertTrue(server._host_ok(host))
 
 
 class TheOpenAIEndpoint(unittest.TestCase):

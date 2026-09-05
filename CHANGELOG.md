@@ -93,6 +93,10 @@ First release.
 - `usage` reports **requests**, not guessed tokens. A `board` object carries every member's
   answer, the tally, and who failed. No quorum is a `409`, not a confident `200`.
 
+### Local server hardening
+- Cross-site `Origin` and non-loopback `Host` headers are refused: loopback keeps the network
+  out, but not a web page you visit, and not DNS rebinding.
+
 ### Writing changes
 - Describe a task and the board **writes the fix**, returned as a diff per file with an apply
   button. Nothing is written until you press it, one file at a time.

@@ -222,11 +222,29 @@ came from four models rather than five.
 **No quorum is a `409`**, with the answers still attached, rather than a confident-looking
 `200` from whoever got through.
 
-### There is no auth on it
+### What "no auth" actually means
 
-It binds to `127.0.0.1`, where there is nothing to authenticate against. That is also exactly
-why it must not be put on a network as it stands — anyone who can reach the socket can spend
-your OpenRouter balance.
+It binds to `127.0.0.1`, so nothing on your network — or the internet — can reach it.
+
+But **loopback keeps the network out, not the browser.** Two things it does not stop on its
+own, both of which are now blocked:
+
+**Cross-site requests.** A page you merely visit can POST to `127.0.0.1` from your browser. It
+cannot *read* the reply without CORS, and none is sent — but a fire-and-forget POST is enough
+to spend your balance or write a file, and not reading the answer costs the attacker nothing.
+Any request carrying a cross-site `Origin` is refused with a `403`.
+
+**DNS rebinding.** A hostname the attacker controls, re-pointed at `127.0.0.1`, makes their
+page same-origin with this server and defeats an Origin check by itself. So the `Host` header
+must also be a loopback name.
+
+**What neither closes:** another *program* on your machine, running as you, can still reach
+it. Nothing short of a token fixes that, and a token stored next to the key it protects buys
+less than it looks like. If you need it, the honest answer today is: do not run the server
+while running code you do not trust.
+
+**And do not put it on a network as it stands.** Anyone who reaches the socket can spend your
+OpenRouter balance and write to the folders you have scanned.
 
 ## Writing your own transport
 

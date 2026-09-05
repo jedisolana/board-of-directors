@@ -336,6 +336,39 @@ def _stream_board(handler, payload: dict) -> None:
     push({"type": "done", **out, "usage": _state()["usage"]})
 
 
+# Loopback keeps the NETWORK out. It does not keep out the browser, and saying "no auth is
+# fine, it is only on localhost" skips over two ways a web page you merely visit can reach a
+# local server:
+#
+#   CSRF            a page can POST to 127.0.0.1 from your browser. It cannot READ the reply
+#                   without CORS, and none is sent - but a fire-and-forget POST is enough to
+#                   spend your balance or write a file, and not reading the answer costs the
+#                   attacker nothing.
+#   DNS rebinding   a hostname the attacker controls, re-pointed at 127.0.0.1, makes their
+#                   page same-origin with this server and defeats an Origin check on its own.
+#
+# Both are cheap to close and standard for a local server. What neither closes is another
+# PROGRAM on this machine running as you - that needs a token, and is the honest limit.
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"}
+
+
+def _host_ok(header: str | None) -> bool:
+    """The Host must be a loopback name. Blocks DNS rebinding, which Origin alone cannot."""
+    if not header:
+        return True                      # HTTP/1.0 and some tools send none
+    host = header.rsplit(":", 1)[0] if header.count(":") == 1 else header
+    return host.strip("[]").lower() in {h.strip("[]") for h in LOOPBACK_HOSTS}
+
+
+def _origin_ok(header: str | None, port: int) -> bool:
+    """No Origin means it is not a browser. A cross-site Origin means it is, and it is not us."""
+    if not header or header == "null":
+        return True
+    from urllib.parse import urlparse
+    u = urlparse(header)
+    return u.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=WEB, **kw)
@@ -356,6 +389,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._no_cache()
         super().end_headers()
 
+    def _guard(self) -> bool:
+        """Refuse anything a web page could have sent. Returns False if it was refused."""
+        if not _host_ok(self.headers.get("Host")):
+            self._json({"error": "refused: this server only answers to localhost. A request "
+                                 "arriving under another hostname is a rebinding attempt."}, 403)
+            return False
+        if not _origin_ok(self.headers.get("Origin"), self.server.server_address[1]):
+            self._json({"error": "refused: cross-site request. A page you are visiting tried "
+                                 "to use your local Board of Directors."}, 403)
+            return False
+        return True
+
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode()
         self.send_response(code)
@@ -365,6 +410,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self._guard():
+            return
         if self.path.startswith("/v1/models"):
             return self._json(openai_api.model_list(_models(), config.model_tier()))
         if self.path.startswith("/api/sessions"):
@@ -378,6 +425,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        if not self._guard():
+            return
         n = int(self.headers.get("Content-Length") or 0)
         try:
             payload = json.loads(self.rfile.read(n) or b"{}")
