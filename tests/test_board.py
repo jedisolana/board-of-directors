@@ -9,6 +9,7 @@ import datetime
 import importlib
 import inspect
 import io
+import json
 import os
 import re
 import shutil
@@ -39,9 +40,16 @@ from boardofdirectors import (
 from boardofdirectors.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
 
 
-def model(mid, ctx=100000, out=8000, params=("max_tokens", "temperature"), mods=("text",)):
+def model(mid, ctx=100000, out=8000, params=("max_tokens", "temperature"), mods=("text",),
+          free=None, price_in=0.0, price_out=0.0):
+    # `free` is not optional in the real catalogue - every one of the 431 entries carries it,
+    # because the money gates read it. A fixture that leaves it off is a fixture where every
+    # model silently looks paid, which is how a test came to assert that a paid model is
+    # served without permission.
     return {"id": mid, "name": mid, "family": mid.split("/")[0], "context_length": ctx,
             "max_completion_tokens": out, "is_moderated": False,
+            "free": mid.endswith(":free") if free is None else free,
+            "price_in": price_in, "price_out": price_out,
             "input_modalities": list(mods), "supported_parameters": sorted(params)}
 
 
@@ -1965,6 +1973,136 @@ class ClosedTab(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.suppress(Exception):
                 srv.handle_error(None, ("127.0.0.1", 1))
         self.assertIn("a genuine bug", err.getvalue(), "a real error was swallowed")
+
+
+class NeverSpendsWithoutPermission(unittest.TestCase):
+    """The one invariant in this program that costs real money when it is wrong.
+
+    Both single-model paths reached `transport.ask` with no paid check on them at all. The
+    board path was gated, the picker only offers free models while paid is off, and so the
+    hole stayed invisible: it needed a stale tab, a remembered choice, or any local program
+    posting to the endpoint - and then it spent money with the cap sitting at $0.00.
+    """
+
+    PAID = model("costly/opus", free=False, price_in=15.0, price_out=75.0)
+    FREE = model("cheap/one:free")
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old_home = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        self.calls = []
+        outer = self
+
+        class Spy:
+            def ask(self, m, msgs):
+                outer.calls.append(m["id"])
+                return board.Answer(model=m["id"], text="hi")
+
+        self.spy = Spy()
+        self.old_cache = dict(server._CACHE)
+        self.old_transport = server._transport
+        server._CACHE["models"] = [self.PAID, self.FREE]
+        server._CACHE["at"] = time.time() + 10_000
+        server._transport = lambda offline: (self.spy, True)
+
+    def tearDown(self):
+        server._CACHE.clear()
+        server._CACHE.update(self.old_cache)
+        server._transport = self.old_transport
+        if self.old_home is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old_home
+        importlib.reload(config)
+
+    def single(self, mid, **extra):
+        self.calls.clear()
+        return server._single({"model": mid, "messages": [{"role": "user", "content": "x"}],
+                               **extra})
+
+    def test_the_console_will_not_call_a_paid_model_with_the_cap_at_zero(self):
+        config.set_model_tier("free")
+        config.set_spend_cap(0.0)
+        out = self.single("costly/opus")
+        self.assertIn("paid model", out.get("error", ""))
+        self.assertEqual(self.calls, [], "a paid model was called with spending locked off")
+
+    def test_a_zero_cap_beats_explicit_consent(self):
+        """Someone who set the cap to zero said that about their money, not about a checkbox."""
+        config.set_model_tier("both")
+        config.set_spend_cap(0.0)
+        out = self.single("costly/opus", allow_paid=True)
+        self.assertIn("locked off", out.get("error", ""))
+        self.assertEqual(self.calls, [])
+
+    def test_the_toggle_alone_is_not_consent_for_this_send(self):
+        """A setting from last week must not be what decides today's question costs money."""
+        config.set_model_tier("both")
+        config.set_spend_cap(5.0)
+        out = self.single("costly/opus")                    # no allow_paid on the request
+        self.assertIn("not allowed on this send", out.get("error", ""))
+        self.assertEqual(self.calls, [], "the stored setting alone let a paid model through")
+
+    def test_permission_plus_headroom_does_work(self):
+        """The gate has to let the paying customer pay, or it is just broken."""
+        config.set_model_tier("both")
+        config.set_spend_cap(5.0)
+        out = self.single("costly/opus", allow_paid=True)
+        self.assertNotIn("error", out)
+        self.assertEqual(self.calls, ["costly/opus"])
+
+    def test_a_free_model_is_never_caught_by_the_gate(self):
+        config.set_model_tier("free")
+        config.set_spend_cap(0.0)
+        out = self.single("cheap/one:free")
+        self.assertNotIn("error", out)
+        self.assertEqual(self.calls, ["cheap/one:free"])
+
+    def test_the_openai_endpoint_is_gated_too(self):
+        """Anything speaking the dialect can name a model. It walked straight past the gate."""
+        for allow, expect_status, expect_calls in ((False, 403, []), (True, 200, ["costly/opus"])):
+            with self.subTest(allow_paid=allow):
+                self.calls.clear()
+                _, status = openai_api.run(
+                    {"model": "costly/opus", "messages": [{"role": "user", "content": "x"}]},
+                    [self.PAID, self.FREE], self.spy, allow_paid=allow, tier="free")
+                self.assertEqual(status, expect_status)
+                self.assertEqual(self.calls, expect_calls)
+
+    def test_an_all_paid_board_says_so_instead_of_crashing(self):
+        """Driven through the real endpoint, because the bug was in the handler.
+
+        Paid members are filtered out AFTER seating, so a saved board of only paid models
+        empties the list. `min()` over nothing is a ValueError, and the person gets a 500
+        naming nothing they could act on.
+        """
+        import http.client
+        config.set_model_tier("free")
+        config.set_spend_cap(0.0)
+        config.set_board([self.PAID["id"]])
+
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        with open(os.path.join(folder, "a.py"), "w", encoding="utf-8") as f:
+            f.write("x = 1\n")
+
+        srv = server._Server(("127.0.0.1", 0), server.Handler)
+        self.addCleanup(srv.server_close)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+
+        conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+        conn.request("POST", "/api/work",
+                     json.dumps({"path": folder, "task": "tidy up"}),
+                     {"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        body = json.loads(resp.read())
+        self.assertEqual(resp.status, 200, "an emptied board returned a server error")
+        self.assertIn("every model on your board is paid", body.get("error", ""))
+        self.assertEqual(self.calls, [], "it called out despite an all-paid board")
 
 
 if __name__ == "__main__":

@@ -185,6 +185,14 @@ def _single(payload: dict) -> dict:
     model = next((m for m in models if m["id"] == mid), None)
     if not model:
         return {"error": f"{mid} is not on today's free list -- it may have expired."}
+    # The board path checks this; the everyday turn did not. The picker only offers free
+    # models while paid is off, so this needed a stale tab, a remembered choice, or anything
+    # local posting to /api/chat -- and then it spent money with the cap sitting at $0.00.
+    # The gate belongs next to the request, not next to the dropdown that usually prevents it.
+    if not model.get("free") and not _paid_ok(payload):
+        why = ("spending is locked off (cap $0.00)" if cost.locked_to_free(config.spend_cap())
+               else "paid models are not allowed on this send")
+        return {"error": f"{mid} is a paid model and {why}."}
     transport, live = _transport(payload.get("offline", False))
     msgs = list(payload.get("messages") or [])
     code = _code_message(payload, model)
@@ -577,6 +585,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     tier=_tier(payload))
                 if not _paid_ok(payload):
                     members = [m for m in members if m.get("free")]
+                if not members:
+                    # Filtering happens after seating, so a saved board of only paid models
+                    # empties the list here. `min()` over nothing is a ValueError and a 500,
+                    # which tells the person nothing about the setting that caused it.
+                    return self._json({"error": "every model on your board is paid, and paid "
+                                                "models are not allowed on this send. Seat a "
+                                                "free model or turn paid models on."})
                 smallest = min((m.get("context_length") or 0) for m in members) or None
                 body = codebase.pack(sc, int(smallest * 0.6) if smallest else None)
                 msg = patch.WRITE_PROMPT.format(task=payload.get("task", ""), code=body)

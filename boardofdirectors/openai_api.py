@@ -89,6 +89,14 @@ def run(payload: dict, models: list[dict], transport, *, members=None, minimum: 
         chosen = next((m for m in models if m["id"] == spec["single"]), None)
         if chosen is None:
             return error(f"no such model: {spec['single']}", "model_not_found", 404)
+        # The paid gate used to guard only the board path, and this one walked straight past
+        # it: name a paid model in the request and it was called, with paid models switched
+        # off in the console and the spend cap at zero. Anything holding this endpoint's
+        # address could spend money the owner had explicitly locked. A gate that covers one
+        # branch is not a gate, and this is the branch where the money actually leaves.
+        if not chosen.get("free") and not allow_paid:
+            return error(f"{chosen['id']} is a paid model, and paid models are not allowed "
+                         "on this request", "paid_not_allowed", 403)
         r = transport.ask(chosen, messages)
         if not r.ok:
             return error(r.reason, "upstream_error", 502)
