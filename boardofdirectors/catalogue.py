@@ -113,7 +113,7 @@ def fetch(timeout: float = 20.0) -> dict:
 
 
 def snapshot() -> dict:
-    with open(SNAPSHOT) as f:
+    with open(SNAPSHOT, encoding="utf-8") as f:
         return json.load(f)
 
 

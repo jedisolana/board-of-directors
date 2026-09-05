@@ -14,6 +14,8 @@ import contextlib
 import json
 import os
 
+from . import atomic
+
 DEFAULT_HOME = os.path.expanduser("~/.board-of-directors")
 HOME = os.path.expanduser(os.environ.get("BOARD_HOME", DEFAULT_HOME))
 CONFIG = os.path.join(HOME, "config.json")
@@ -45,7 +47,9 @@ def _migrate() -> None:
         for name in ("config.json", "usage.json"):
             old, new = os.path.join(LEGACY_HOME, name), os.path.join(HOME, name)
             if os.path.exists(old) and not os.path.exists(new):
-                with open(old) as a, open(os.open(new, os.O_WRONLY | os.O_CREAT, 0o600), "w") as b:
+                with open(old, encoding="utf-8") as a, \
+                     open(os.open(new, os.O_WRONLY | os.O_CREAT, 0o600), "w",
+                          encoding="utf-8") as b:
                     b.write(a.read())
     except OSError:
         pass
@@ -60,21 +64,39 @@ def _ensure_home() -> None:
 
 def load() -> dict:
     _migrate()
-    try:
-        with open(CONFIG) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+    return atomic.read_json(CONFIG, {}) or {}
 
 
 def save(cfg: dict) -> str:
     _ensure_home()
-    tmp = CONFIG + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(cfg, f, indent=2)
-    os.replace(tmp, CONFIG)
-    return CONFIG
+    return atomic.write_json(CONFIG, cfg)
+
+
+def update(**fields) -> dict:
+    """Read, change, write - under a lock, as one operation.
+
+    Every caller used to do this by hand: load(), mutate, save(). Two of them running at once
+    both read the old file and the second write threw the first away. That was survivable
+    while everything was sequential and stopped being so the moment members were asked in
+    parallel, since a 403 from two members calls mark_unusable from two threads at once.
+    """
+    _ensure_home()
+    with atomic.locked(CONFIG):
+        cfg = atomic.read_json(CONFIG, {}) or {}
+        for k, v in fields.items():
+            if v is _DELETE:
+                cfg.pop(k, None)
+            else:
+                cfg[k] = v
+        atomic.write_json(CONFIG, cfg)
+        return cfg
+
+
+class _Delete:
+    pass
+
+
+_DELETE = _Delete()
 
 
 def api_key() -> tuple[str | None, str]:
@@ -172,11 +194,8 @@ def verify(key: str, timeout: float = 15.0) -> tuple[bool, str, dict]:
 
 
 def set_api_key(key: str) -> str:
-    """Save a key, or raise. A key that fails the check NEVER replaces a stored one."""
-    k = check_key(key)
-    cfg = load()
-    cfg["api_key"] = k
-    return save(cfg)
+    update(api_key=check_key(key))
+    return CONFIG
 
 
 MGMT_ENV = "OPENROUTER_MANAGEMENT_KEY"
@@ -202,21 +221,16 @@ def set_management_key(key: str) -> str:
         raise BadKey("nothing was entered")
     if any(c.isspace() for c in k):
         raise BadKey("this has spaces in it, so it cannot be a key")
-    cfg = load()
-    cfg["management_key"] = k
-    return save(cfg)
+    update(management_key=k)
+    return CONFIG
 
 
 def forget_management_key() -> None:
-    cfg = load()
-    cfg.pop("management_key", None)
-    save(cfg)
+    update(management_key=_DELETE)
 
 
 def forget_api_key() -> None:
-    cfg = load()
-    cfg.pop("api_key", None)
-    save(cfg)
+    update(api_key=_DELETE)
 
 
 def mask(key: str | None) -> str:
@@ -231,9 +245,11 @@ def board(name: str = "default") -> list[str] | None:
 
 
 def set_board(members: list[str], name: str = "default") -> str:
-    cfg = load()
-    cfg.setdefault("boards", {})[name] = members
-    return save(cfg)
+    with atomic.locked(CONFIG):
+        cfg = atomic.read_json(CONFIG, {}) or {}
+        cfg.setdefault("boards", {})[name] = members
+        atomic.write_json(CONFIG, cfg)
+    return CONFIG
 
 
 def unusable() -> dict:
@@ -249,19 +265,22 @@ def unusable() -> dict:
 
 
 def mark_unusable(model_id: str, why: str) -> None:
-    cfg = load()
-    cfg.setdefault("unusable", {})[model_id] = {"why": why, "at": __import__("time").time()}
-    save(cfg)
+    import time
+    with atomic.locked(CONFIG):
+        cfg = atomic.read_json(CONFIG, {}) or {}
+        cfg.setdefault("unusable", {})[model_id] = {"why": why, "at": time.time()}
+        atomic.write_json(CONFIG, cfg)
 
 
 def forget_unusable(model_id: str | None = None) -> None:
     """A gate can be lifted; nothing here is permanent."""
-    cfg = load()
-    if model_id is None:
-        cfg.pop("unusable", None)
-    else:
-        (cfg.get("unusable") or {}).pop(model_id, None)
-    save(cfg)
+    with atomic.locked(CONFIG):
+        cfg = atomic.read_json(CONFIG, {}) or {}
+        if model_id is None:
+            cfg.pop("unusable", None)
+        else:
+            (cfg.get("unusable") or {}).pop(model_id, None)
+        atomic.write_json(CONFIG, cfg)
 
 
 def model_tier() -> str:
@@ -280,10 +299,7 @@ def model_tier() -> str:
 def set_model_tier(tier: str) -> None:
     if tier not in ("free", "paid", "both"):
         raise ValueError(f"unknown tier {tier!r}")
-    cfg = load()
-    cfg["model_tier"] = tier
-    cfg.pop("allow_paid", None)
-    save(cfg)
+    update(model_tier=tier, allow_paid=_DELETE)
 
 
 def allow_paid() -> bool:
@@ -300,9 +316,7 @@ def spend_cap() -> float:
 
 
 def set_spend_cap(usd: float) -> None:
-    cfg = load()
-    cfg["spend_cap_usd"] = max(0.0, float(usd))
-    save(cfg)
+    update(spend_cap_usd=max(0.0, float(usd)))
 
 
 def tier() -> float:
@@ -327,15 +341,12 @@ def set_measured_tier(is_free_tier: bool | None) -> None:
     """Record what the account itself reports. None means it did not say."""
     if is_free_tier is None:
         return
-    cfg = load()
-    cfg["is_free_tier"] = bool(is_free_tier)
-    save(cfg)
+    update(is_free_tier=bool(is_free_tier))
 
 
 CREDIT_THRESHOLD = 10
 
 
 def set_tier(usd: float) -> str:
-    cfg = load()
-    cfg["credits_purchased_usd"] = float(usd)
-    return save(cfg)
+    update(credits_purchased_usd=float(usd))
+    return CONFIG

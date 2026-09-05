@@ -31,6 +31,8 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from . import atomic
+
 FENCE = re.compile(r"^-{3,}\s*(?P<path>[^\n]+?)\s*-{3,}\s*$", re.M)
 
 WRITE_PROMPT = """You are changing a real codebase. Below is the source.
@@ -108,7 +110,7 @@ def parse(text: str, root: str, allowed: set[str]) -> tuple[list[Change], list[s
             notes.append(f"{rel}: was not in the code the board was shown — refused")
             continue
         try:
-            with open(full) as fh:
+            with open(full, encoding="utf-8") as fh:
                 old = fh.read()
         except OSError:
             notes.append(f"{rel}: cannot be read — refused")
@@ -143,7 +145,7 @@ def apply(change: Change, expect_digest: str | None = None, backup_dir: str | No
     happened in between.
     """
     try:
-        with open(change.path) as fh:
+        with open(change.path, encoding="utf-8") as fh:
             now = fh.read()
     except OSError as e:
         raise Rejected(f"{change.rel} cannot be read: {e}") from e
@@ -155,10 +157,8 @@ def apply(change: Change, expect_digest: str | None = None, backup_dir: str | No
         os.makedirs(backup_dir, mode=0o700, exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
         safe = change.rel.replace(os.sep, "__")
-        with open(os.path.join(backup_dir, f"{stamp}.{safe}"), "w") as fh:
-            fh.write(now)
-    tmp = change.path + ".tmp"
-    with open(tmp, "w") as fh:
-        fh.write(change.new)
-    os.replace(tmp, change.path)
+        atomic.write(os.path.join(backup_dir, f"{stamp}.{safe}"), now, mode=0o600)
+    # The user's own source file, so the same rule: a unique scratch name and an fsync
+    # before the rename. A half-written file here is somebody's code.
+    atomic.write(change.path, change.new, mode=0o644)
     return change.path

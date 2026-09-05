@@ -349,7 +349,11 @@ def _stream_board(handler, payload: dict) -> None:
 #
 # Both are cheap to close and standard for a local server. What neither closes is another
 # PROGRAM on this machine running as you - that needs a token, and is the honest limit.
-LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"}
+# 0.0.0.0 is NOT loopback - it means "every interface", and it was in this set. A Host header
+# of 0.0.0.0 would have been accepted as local, which is the opposite of what the check is
+# for. It was here because the same names were also being used to describe what the server
+# BINDS to, and those are two different questions.
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _host_ok(header: str | None) -> bool:
@@ -367,16 +371,22 @@ def _host_ok(header: str | None) -> bool:
         host = h[1:end] if end > 0 else ""      # unterminated bracket -> refuse
     else:
         host = h.rsplit(":", 1)[0] if h.count(":") == 1 else h
-    return host.lower() in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    # the set above, not a second copy of it: two lists of the same thing drift apart, and
+    # the copy in here had already drifted by including 0.0.0.0
+    return host.lower() in LOOPBACK_HOSTS
 
 
-def _origin_ok(header: str | None, port: int) -> bool:
-    """No Origin means it is not a browser. A cross-site Origin means it is, and it is not us."""
+def _origin_ok(header: str | None) -> bool:
+    """No Origin means it is not a browser. A cross-site Origin means it is, and it is not us.
+
+    The port is deliberately not checked. Another local server on a different port is not the
+    threat this guards against - a page on the open internet is - and pinning the port would
+    break anyone running this on a port of their own.
+    """
     if not header or header == "null":
         return True
     from urllib.parse import urlparse
-    u = urlparse(header)
-    return u.hostname in {"localhost", "127.0.0.1", "::1"}
+    return urlparse(header).hostname in LOOPBACK_HOSTS
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -405,7 +415,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._json({"error": "refused: this server only answers to localhost. A request "
                                  "arriving under another hostname is a rebinding attempt."}, 403)
             return False
-        if not _origin_ok(self.headers.get("Origin"), self.server.server_address[1]):
+        if not _origin_ok(self.headers.get("Origin")):
             self._json({"error": "refused: cross-site request. A page you are visiting tried "
                                  "to use your local Board of Directors."}, 403)
             return False

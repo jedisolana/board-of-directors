@@ -19,13 +19,12 @@ Two things it cannot see, both stated plainly wherever the number is shown:
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from . import config
+from . import atomic, config
 
 LEDGER = os.path.join(config.HOME, "usage.json")
 
@@ -57,20 +56,12 @@ def _locked():
 
 
 def _load() -> dict:
-    try:
-        with open(LEDGER) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {"days": {}, "truth": None}
+    return atomic.read_json(LEDGER, None) or {"days": {}, "truth": None}
 
 
 def _save(d: dict) -> None:
     config._ensure_home()
-    tmp = LEDGER + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(d, f, indent=2)
-    os.replace(tmp, LEDGER)
+    atomic.write_json(LEDGER, d)
 
 
 def record(model: str, ok: bool, day: str | None = None, provider_side: bool = False) -> None:

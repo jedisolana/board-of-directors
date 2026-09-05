@@ -16,12 +16,11 @@ questions and your code, so they are treated like the key: never sent anywhere, 
 """
 from __future__ import annotations
 
-import json
 import os
 import time
 import uuid
 
-from . import config
+from . import atomic, config
 
 DIR = os.path.join(config.HOME, "sessions")
 MAX_SESSIONS = 200
@@ -66,21 +65,13 @@ def save(sid: str, turns: list[dict], meta: dict | None = None) -> str:
         "turns": turns,
         "meta": {**(existing.get("meta") or {}), **(meta or {})},
     }
-    tmp = p + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(doc, f, indent=1)
-    os.replace(tmp, p)
+    atomic.write_json(p, doc, indent=1)
     _prune()
     return p
 
 
 def load(sid: str) -> dict | None:
-    try:
-        with open(_path(sid)) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
+    return atomic.read_json(_path(sid), None)
 
 
 def delete(sid: str) -> bool:
@@ -101,10 +92,8 @@ def listing(limit: int = 50) -> list[dict]:
     for name in names:
         if not name.endswith(".json"):
             continue
-        try:
-            with open(os.path.join(_dir(), name)) as f:
-                d = json.load(f)
-        except (OSError, ValueError):
+        d = atomic.read_json(os.path.join(_dir(), name), None)
+        if d is None:
             continue
         board_turns = sum(1 for t in d.get("turns", []) if t.get("board"))
         out.append({"id": d.get("id", name[:-5]), "title": d.get("title", "?"),

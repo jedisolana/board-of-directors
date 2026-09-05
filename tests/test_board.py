@@ -4,8 +4,10 @@ A board that works when every model answers is easy. The whole value of this thi
 does when a member is throttled, when the seam sees a key, or when the pool has no
 independent members left -- so that is what most of these check.
 """
+import contextlib
 import datetime
 import importlib
+import inspect
 import os
 import re
 import shutil
@@ -16,6 +18,7 @@ import typing
 import unittest
 
 from boardofdirectors import (
+    atomic,
     board,
     budget,
     catalogue,
@@ -1231,6 +1234,96 @@ class ResettingTheCount(unittest.TestCase):
         self.assertEqual(len([r for r in usage._load()["days"] if r == "2026-09-01"]), 1)
 
 
+class WritingFilesSafely(unittest.TestCase):
+    """Every store shared one temp filename, which stopped being survivable the day the board
+    went parallel.
+
+    Write x.tmp, rename over x. The rename is atomic - that is the point - but the temp NAME
+    was fixed, so two writers shared it: one renamed it away while the other was still
+    writing, and the second one's rename found nothing there. A 403 from two members at once
+    has two threads inside mark_unusable, which is a read-modify-write on the file holding
+    the API key. Hammered with twelve threads: eleven crashed, and thirteen of a hundred and
+    forty-four writes survived.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.p = os.path.join(self.d, "x.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_concurrent_read_modify_writes_lose_nothing(self):
+        atomic.write_json(self.p, {"n": 0})
+
+        def hammer():
+            for _ in range(30):
+                with atomic.locked(self.p):
+                    c = atomic.read_json(self.p, {}) or {}
+                    c["n"] = c.get("n", 0) + 1
+                    atomic.write_json(self.p, c)
+
+        threads = [threading.Thread(target=hammer) for _ in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(atomic.read_json(self.p)["n"], 360)
+
+    def test_no_two_writers_share_a_scratch_file(self):
+        """The whole bug in one assertion: the temp name has to differ per thread."""
+        import re as _re
+        src = inspect.getsource(atomic.write)
+        m = _re.search(r'tmp = f"([^"]+)"', src)
+        self.assertIsNotNone(m, "the temp name is not built from a format string")
+        self.assertIn("getpid", m.group(1) + src)
+        self.assertIn("get_ident", src, "two THREADS was the case that actually bit")
+
+    def test_nothing_is_left_behind(self):
+        for i in range(20):
+            atomic.write_json(self.p, {"i": i})
+        self.assertEqual([f for f in os.listdir(self.d) if ".tmp" in f], [])
+
+    def test_a_truncated_file_reads_as_absent_rather_than_raising(self):
+        with open(self.p, "w", encoding="utf-8") as f:
+            f.write('{"half": ')
+        self.assertEqual(atomic.read_json(self.p, "fallback"), "fallback")
+
+    def test_a_failed_write_leaves_no_scratch_file(self):
+        with contextlib.suppress(OSError):
+            atomic.write(os.path.join(self.d, "nope", "deep", "x"), "y")
+        self.assertEqual([f for f in os.listdir(self.d) if ".tmp" in f], [])
+
+    def test_the_config_survives_twelve_threads_marking_models_unusable(self):
+        """The real path: a 403 from several members at once."""
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            config.set_api_key("sk-or-v1-" + "a" * 64)
+
+            def hammer(i):
+                for n in range(12):
+                    config.mark_unusable(f"v{i}/m{n}:free", "busy")
+
+            threads = [threading.Thread(target=hammer, args=(i,)) for i in range(12)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            cfg = config.load()
+            self.assertTrue(cfg.get("api_key"), "the key must survive")
+            self.assertEqual(len(cfg.get("unusable") or {}), 144)
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+
+
 class ReachableFromABrowser(unittest.TestCase):
     """"No auth is fine, it is only on localhost" skips over the browser.
 
@@ -1245,23 +1338,38 @@ class ReachableFromABrowser(unittest.TestCase):
         for origin in ("https://evil.example", "http://evil.example:8420",
                        "https://127.0.0.1.evil.example"):
             with self.subTest(origin=origin):
-                self.assertFalse(server._origin_ok(origin, 8420))
+                self.assertFalse(server._origin_ok(origin))
 
     def test_the_page_itself_is_allowed(self):
         for origin in ("http://127.0.0.1:8420", "http://localhost:8420"):
             with self.subTest(origin=origin):
-                self.assertTrue(server._origin_ok(origin, 8420))
+                self.assertTrue(server._origin_ok(origin))
 
     def test_no_origin_at_all_is_allowed(self):
         """Curl, a script, an SDK - none of them is a browser, and none sends Origin."""
-        self.assertTrue(server._origin_ok(None, 8420))
-        self.assertTrue(server._origin_ok("", 8420))
+        self.assertTrue(server._origin_ok(None))
+        self.assertTrue(server._origin_ok(""))
 
     def test_a_rebound_hostname_is_refused(self):
         """Origin alone cannot catch this: after rebinding, the attacker's page IS the origin."""
         for host in ("attacker.example", "attacker.example:8420", "192.168.1.9:8420"):
             with self.subTest(host=host):
                 self.assertFalse(server._host_ok(host))
+
+    def test_all_interfaces_is_not_loopback(self):
+        """0.0.0.0 means EVERY interface and it was in the allowlist, so a Host of 0.0.0.0
+        counted as local - the opposite of what the check is for. It was there because the
+        same names were describing what the server BINDS to, which is a different question."""
+        self.assertFalse(server._host_ok("0.0.0.0"))
+        self.assertFalse(server._host_ok("0.0.0.0:8420"))
+        self.assertNotIn("0.0.0.0", server.LOOPBACK_HOSTS)
+
+    def test_the_check_uses_the_constant_rather_than_a_second_copy(self):
+        """The duplicate had already drifted: it included 0.0.0.0 and the constant did not."""
+        import inspect
+        src = inspect.getsource(server._host_ok)
+        self.assertIn("LOOPBACK_HOSTS", src)
+        self.assertNotIn('"127.0.0.1",', src.split("return")[-1])
 
     def test_loopback_hostnames_are_allowed(self):
         for host in ("127.0.0.1:8420", "localhost:8420", "localhost", "[::1]:8420", None):
