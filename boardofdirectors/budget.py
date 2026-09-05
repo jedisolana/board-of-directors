@@ -74,7 +74,7 @@ def sessions(budget: Budget, members: int = 5, rounds: int = 1, chair: bool = Tr
     """How many board sessions the free tier will actually give you.
 
     The per-minute limit is the one people meet first: a board is BURSTY -- every member is
-    asked at once -- so a 5-member board with peer review and a chair is 11 requests fired in
+    asked at once -- so a 6-member board with peer review and a chair is 13 requests fired in
     a second or two, and three of those bursts is your minute gone.
     """
     per = requests_per_session(members, rounds, chair, peer_review)

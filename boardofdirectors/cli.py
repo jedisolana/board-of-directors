@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import json
 import sys
 
 from . import board, budget, catalogue, config, redact, seats, server, usage
@@ -269,10 +268,14 @@ def cmd_reset(args) -> int:
 
 def cmd_refresh(args) -> int:
     c = catalogue.fetch()
-    with open(catalogue.SNAPSHOT, "w", encoding="utf-8") as f:
-        json.dump(c, f, indent=2)
+    catalogue.remember(c)
+    # A model marked unusable yesterday may be back today; a refresh is the moment to find out.
+    # This is the only place that lifts the gate, and it lifts all of them at once on purpose -
+    # the next run re-marks whichever are still refused, from evidence rather than memory.
+    config.forget_unusable()
     free = sum(1 for m in c["models"] if m.get("free"))
-    print(f"  {len(c['models'])} model(s), {free} free -> {catalogue.SNAPSHOT}")
+    print(f"  {len(c['models'])} model(s), {free} free -> {catalogue.USER_SNAPSHOT}")
+    print("  models previously marked unusable will be tried again")
     return 0
 
 

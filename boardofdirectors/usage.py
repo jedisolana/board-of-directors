@@ -114,9 +114,28 @@ class Status:
         return self.tier_usd >= CREDIT_THRESHOLD_USD
 
 
-def _resets_in() -> str:
-    now = time.gmtime()
-    secs = (23 - now.tm_hour) * 3600 + (59 - now.tm_min) * 60 + (60 - now.tm_sec)
+def _resets_in(truth: dict | None = None) -> str:
+    """Time to the next reset: OpenRouter's stated moment when a 429 gave us one, UTC midnight
+    otherwise.
+
+    The 429 handler had stored X-RateLimit-Reset since the first week and nothing ever read it -
+    the header counted down to midnight regardless, while the module docstring promised the
+    opposite. The stated value is honoured when it parses, lies in the future, and is less than
+    two days away; anything else is treated as the noise it probably is.
+    """
+    now = time.time()
+    raw = (truth or {}).get("reset")
+    try:
+        stamp = float(raw)
+        if stamp > 1e12:                    # milliseconds, which is how the header reads
+            stamp /= 1000.0
+        if now < stamp < now + 2 * 86400:
+            secs = int(stamp - now)
+            return f"{secs // 3600}h {secs % 3600 // 60}m"
+    except (TypeError, ValueError):
+        pass
+    g = time.gmtime(now)
+    secs = (23 - g.tm_hour) * 3600 + (59 - g.tm_min) * 60 + (60 - g.tm_sec)
     return f"{secs // 3600}h {secs % 3600 // 60}m"
 
 
@@ -186,4 +205,4 @@ def status(tier_usd: float | None = None, true_calls: int | None = None) -> Stat
                   failed=rec["failed"], provider_busy=rec.get("provider_busy", 0),
                   per_model=rec.get("models", {}), allowance=allowance,
                   remaining=remaining, measured=measured, tier_usd=tier_usd,
-                  source=source, resets_in=_resets_in())
+                  source=source, resets_in=_resets_in(truth if measured else None))

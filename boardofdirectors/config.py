@@ -229,10 +229,6 @@ def forget_management_key() -> None:
     update(management_key=_DELETE)
 
 
-def forget_api_key() -> None:
-    update(api_key=_DELETE)
-
-
 def mask(key: str | None) -> str:
     """Enough to recognise it, never enough to use it."""
     if not key:

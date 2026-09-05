@@ -2780,5 +2780,80 @@ class TheCeilingIsWhatTheMinuteCanServe(unittest.TestCase):
         self.assertEqual(rep.count("rate limited (simulated)"), 1, "the same reason was listed per member")
 
 
+class TheCountdownHonoursThe429(unittest.TestCase):
+    """learn_from_429 stored X-RateLimit-Reset from the first week. Nothing read it: the header
+    counted down to UTC midnight regardless, while the module docstring promised otherwise."""
+
+    def test_a_stated_reset_two_hours_out_is_what_is_shown(self):
+        for raw in (time.time() + 7200, (time.time() + 7200) * 1000, str(int(time.time() + 7200))):
+            with self.subTest(form=type(raw).__name__ + ("-ms" if isinstance(raw, float) and raw > 1e12 else "")):
+                self.assertIn(usage._resets_in({"reset": raw}), ("1h 59m", "2h 0m"))
+
+    def test_noise_falls_back_to_midnight(self):
+        midnight = usage._resets_in(None)
+        for raw in (None, "soon", -5, time.time() - 60, time.time() + 40 * 86400):
+            with self.subTest(raw=raw):
+                self.assertEqual(usage._resets_in({"reset": raw}), midnight)
+
+
+class TheSnapshotLivesWithTheUser(unittest.TestCase):
+    """`board refresh` wrote into the installed package: silently on a pipx install, a traceback on
+    a read-only one. The shipped copy is read-only by nature; the machine's own copy goes in HOME
+    and any successful live fetch refreshes it."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        importlib.reload(catalogue)
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old
+        importlib.reload(config)
+        importlib.reload(catalogue)
+
+    def test_the_user_copy_is_in_home_and_the_shipped_one_is_never_written(self):
+        self.assertTrue(catalogue.USER_SNAPSHOT.startswith(self.home))
+        before = os.path.getmtime(catalogue.SNAPSHOT)
+        catalogue.remember({"captured": "now", "models": [model("z/one:free")], "origin": "live"})
+        self.assertEqual(os.path.getmtime(catalogue.SNAPSHOT), before, "the shipped file was touched")
+        self.assertTrue(os.path.exists(catalogue.USER_SNAPSHOT))
+
+    def test_the_user_copy_wins_and_a_corrupt_one_falls_back(self):
+        shipped = catalogue.snapshot()["models"]
+        catalogue.remember({"captured": "now", "models": [model("z/one:free")]})
+        self.assertEqual([m["id"] for m in catalogue.snapshot()["models"]], ["z/one:free"])
+        with open(catalogue.USER_SNAPSHOT, "w", encoding="utf-8") as f:
+            f.write("{ not json")
+        self.assertEqual(len(catalogue.snapshot()["models"]), len(shipped), "a corrupt copy was not an older snapshot")
+
+    def test_refresh_lifts_the_unusable_gate(self):
+        from unittest import mock
+
+        from boardofdirectors import cli
+        config.mark_unusable("a/b:free", "refused yesterday")
+        self.assertIn("a/b:free", config.unusable())
+        with mock.patch.object(catalogue, "fetch", return_value={"captured": "x", "models": [model("z/one:free")]}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            cli.main(["refresh"])
+        self.assertNotIn("a/b:free", config.unusable())
+        self.assertTrue(os.path.exists(catalogue.USER_SNAPSHOT))
+
+
+class TheWelcomeTextFollowsTheSeats(unittest.TestCase):
+    def test_the_numbers_are_not_hardcoded(self):
+        with open(os.path.join(os.path.dirname(server.__file__), "web", "index.html"), encoding="utf-8") as f:
+            h = f.read()
+        self.assertNotIn("five of them answer", h)
+        self.assertIn('id="emptyN"', h)
+        self.assertIn('id="emptyCost"', h)
+        self.assertIn("2 * nSeats + 1", h)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -11,7 +11,7 @@ ONE CONVERSATION, TWO MODES. The thread is the spine. Most turns go to a single 
 request. When a question is worth more, the same thread switches to board mode: every member
 gets the conversation so far and answers independently, and the chair's verdict is what lands
 back in the thread. Switch back and the next single model picks up from that verdict. You pay
-11 requests only on the turns you choose to.
+13 requests only on the turns you choose to.
 """
 from __future__ import annotations
 

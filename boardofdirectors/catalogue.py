@@ -24,11 +24,18 @@ import os
 import time
 import urllib.request
 
+from . import atomic, config
+
 MODELS_URL = "https://openrouter.ai/api/v1/models"
 # Inside the package, not beside it. A path that climbs out of the package works from a
 # source tree and does not survive an install: as `../data/free-models.json` it landed as a
 # top-level `data/` in site-packages, one namespace collision away from another project's.
 SNAPSHOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "free-models.json")
+# The shipped snapshot is read-only by nature: it lives inside the installed package, and on a
+# system install that directory belongs to root. `board refresh` used to write there - which on
+# a pipx install silently rewrote the installed program, and on a read-only one was a traceback.
+# The machine's own copy, refreshed by any successful live fetch, lives with the user's data.
+USER_SNAPSHOT = os.path.join(config.HOME, "free-models.json")
 
 # Free-priced rows that are not board material. A seat needs a model that can hold an
 # argument; these can't, and seating them looks like a working board that never deliberates.
@@ -122,8 +129,23 @@ def fetch(timeout: float = 20.0) -> dict:
 
 
 def snapshot() -> dict:
+    """The most recent catalogue this machine has: its own refreshed copy if it has one and the
+    copy is readable, else the one that shipped. A corrupt local copy is not an error, it is
+    an older snapshot."""
+    local = atomic.read_json(USER_SNAPSHOT, None)
+    if isinstance(local, dict) and isinstance(local.get("models"), list) and local["models"]:
+        return local
     with open(SNAPSHOT, encoding="utf-8") as f:
         return json.load(f)
+
+
+def remember(c: dict) -> None:
+    """Keep a live catalogue as this machine's snapshot. Best effort: a full disk must not turn
+    a successful fetch into a failure."""
+    import contextlib
+    with contextlib.suppress(Exception):
+        config._ensure_home()
+        atomic.write_json(USER_SNAPSHOT, {k: v for k, v in c.items() if k != "origin"})
 
 
 def load(live: bool = True) -> dict:
@@ -136,6 +158,7 @@ def load(live: bool = True) -> dict:
         try:
             c = fetch()
             c["origin"] = "live"
+            remember(c)
             return c
         except Exception as e:
             c = snapshot()

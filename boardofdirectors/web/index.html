@@ -308,8 +308,8 @@
     <div class="thread" id="thread">
       <div class="empty" id="empty">
         Pick a model on the left and start talking.<br>
-        Switch to <b>board</b> on any turn and five of them answer instead.<br>
-        <code>1 request</code> a turn, or <code>11</code> when you convene the board.
+        Switch to <b>board</b> on any turn and <span id="emptyN">six</span> of them answer instead.<br>
+        <code>1 request</code> a turn, or <code id="emptyCost">13</code> when you convene the board.
       </div>
     </div>
     <footer>
@@ -639,6 +639,11 @@ function paintModels(){
   const maxSeats = Math.min(9, new Set(S.models.filter(m => m.seatable).map(m => m.family)).size);   // 9: see the title below
   seatCount = Math.max(2, Math.min(seatCount, maxSeats));
   $("#seatN").textContent = board.length || seatCount;
+  // The welcome text quotes a price. It said "five... or 11" in HTML while the default was six
+  // and the count was adjustable - a number that cannot move is a number that will be wrong.
+  const nSeats = board.length || seatCount, en = $("#emptyN"), ec = $("#emptyCost");
+  if(en) en.textContent = ["","","two","three","four","five","six","seven","eight","nine"][nSeats] || nSeats;
+  if(ec) ec.textContent = 2 * nSeats + 1;
   $("#seatDown").disabled = (board.length || seatCount) <= 2;
   $("#seatUp").disabled = (board.length || seatCount) >= maxSeats;
   $("#seatN").title = maxSeats === 9
