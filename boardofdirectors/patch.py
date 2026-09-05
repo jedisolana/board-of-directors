@@ -82,6 +82,24 @@ class Rejected(Exception):
     """A proposed change that must not be applied, and why."""
 
 
+def contained(root: str, rel: str) -> str:
+    """The absolute path `rel` names inside `root`, or `Rejected`.
+
+    One rule, used by the parser and again by the writer. They had different ones: the parser
+    refused traversal carefully and the writer joined whatever it was handed, so a path that
+    never went through the parser wrote anywhere on the machine.
+    """
+    root = os.path.abspath(os.path.expanduser(root))
+    if os.path.isabs(rel) or ".." in rel.replace("\\", "/").split("/"):
+        raise Rejected(f"{rel}: path escapes the folder")
+    full = os.path.abspath(os.path.join(root, rel))
+    if os.path.commonpath([full, root]) != root:
+        raise Rejected(f"{rel}: outside the folder")
+    if os.path.islink(full) or not codebase.inside(root, full):
+        raise Rejected(f"{rel}: resolves outside the folder")
+    return full
+
+
 def parse(text: str, root: str, allowed: set[str]) -> tuple[list[Change], list[str]]:
     """Pull whole files out of a model's answer. Returns (changes, complaints)."""
     root = os.path.abspath(os.path.expanduser(root))
@@ -99,18 +117,10 @@ def parse(text: str, root: str, allowed: set[str]) -> tuple[list[Change], list[s
             rel = rel[2:]
         body = text[m.end():(marks[i + 1].start() if i + 1 < len(marks) else len(text))]
         body = _unfence(body).rstrip() + "\n"
-        if os.path.isabs(rel) or ".." in rel.replace("\\", "/").split("/"):
-            notes.append(f"{rel}: path escapes the folder — refused")
-            continue
-        full = os.path.abspath(os.path.join(root, rel))
-        if os.path.commonpath([full, root]) != root:
-            notes.append(f"{rel}: outside the folder — refused")
-            continue
-        # Belt and braces on the symlink case. The scanner already refuses to show the board
-        # a link that leaves the folder, so one should never reach the allowlist - but the
-        # allowlist is data, and the check that matters is the one standing next to the write.
-        if os.path.islink(full) or not codebase.inside(root, full):
-            notes.append(f"{rel}: resolves outside the folder — refused")
+        try:
+            full = contained(root, rel)
+        except Rejected as e:
+            notes.append(f"{e} — refused")
             continue
         if rel not in allowed:
             notes.append(f"{rel}: was not in the code the board was shown — refused")
@@ -142,16 +152,24 @@ def digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
-def apply(change: Change, expect_digest: str | None = None, backup_dir: str | None = None) -> str:
-    """Write one file. Raises `Rejected` rather than guessing.
+def apply(change: Change, root: str, expect_digest: str | None = None,
+          backup_dir: str | None = None) -> str:
+    """Write one file, inside `root`. Raises `Rejected` rather than guessing.
+
+    `root` is not optional and the check is not the caller's job. This is the only place in
+    the program that writes to somebody's disk, and it used to write wherever the path it was
+    handed pointed -- `../../.ssh/authorized_keys` included, reported back as success.
 
     `expect_digest` is the hash of the contents the board actually reasoned about. If the file
     has moved on since - another edit, a git checkout, a formatter - the proposal was written
     against text that is no longer there, and applying it would silently discard whatever
     happened in between.
     """
+    target = contained(root, change.rel)
+    if os.path.abspath(change.path) != target:
+        raise Rejected(f"{change.rel}: the path does not match the folder it claims to be in")
     try:
-        with open(change.path, encoding="utf-8") as fh:
+        with open(target, encoding="utf-8") as fh:
             now = fh.read()
     except OSError as e:
         raise Rejected(f"{change.rel} cannot be read: {e}") from e
@@ -166,5 +184,5 @@ def apply(change: Change, expect_digest: str | None = None, backup_dir: str | No
         atomic.write(os.path.join(backup_dir, f"{stamp}.{safe}"), now, mode=0o600)
     # The user's own source file, so the same rule: a unique scratch name and an fsync
     # before the rename. A half-written file here is somebody's code.
-    atomic.write(change.path, change.new, mode=0o644)
-    return change.path
+    atomic.write(target, change.new, mode=0o644)
+    return target

@@ -619,7 +619,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                                   path=os.path.join(root, payload["rel"]),
                                   new=payload["new"])
                 try:
-                    patch.apply(ch, expect_digest=payload.get("was"),
+                    patch.apply(ch, root, expect_digest=payload.get("was"),
                                 backup_dir=os.path.join(config.HOME, "backups"))
                 except (patch.Rejected, OSError) as e:
                     return self._json({"error": str(e)})

@@ -1576,7 +1576,7 @@ class ProposedChanges(unittest.TestCase):
         ch, _ = patch.parse("----- calc.py -----\ndef add(a, b):\n    return a + b\n",
                             self.root, self.allowed)
         backups = os.path.join(self.root, ".bak")
-        patch.apply(ch[0], expect_digest=patch.digest(ch[0].old), backup_dir=backups)
+        patch.apply(ch[0], self.root, expect_digest=patch.digest(ch[0].old), backup_dir=backups)
         with open(ch[0].path) as f:
             self.assertIn("a + b", f.read())
         kept = os.listdir(backups)
@@ -1593,7 +1593,7 @@ class ProposedChanges(unittest.TestCase):
         with open(ch[0].path, "w") as f:
             f.write("someone else edited this\n")
         with self.assertRaises(patch.Rejected) as e:
-            patch.apply(ch[0], expect_digest=stale)
+            patch.apply(ch[0], self.root, expect_digest=stale)
         self.assertIn("changed on disk", str(e.exception))
 
     def test_parsing_alone_writes_nothing(self):
@@ -2103,6 +2103,91 @@ class NeverSpendsWithoutPermission(unittest.TestCase):
         self.assertEqual(resp.status, 200, "an emptied board returned a server error")
         self.assertIn("every model on your board is paid", body.get("error", ""))
         self.assertEqual(self.calls, [], "it called out despite an all-paid board")
+
+
+class TheOnlyPlaceThatWrites(unittest.TestCase):
+    """/api/apply took `root` and `rel` from the request and joined them.
+
+    Nothing checked. The parser refused traversal with real care, and then the writer -- the
+    one function in the program that touches somebody's disk -- wrote wherever the path it
+    was handed pointed, and reported it as success. Two rules where there should have been
+    one, and the loose one was the one holding the pen.
+    """
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old_home = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        self.work = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.work, ignore_errors=True)
+        self.proj = os.path.join(self.work, "proj")
+        self.out = os.path.join(self.work, "outside")
+        os.makedirs(self.proj)
+        os.makedirs(self.out)
+        self.victim = os.path.join(self.out, "authorized_keys")
+        with open(self.victim, "w", encoding="utf-8") as f:
+            f.write("original\n")
+        with open(os.path.join(self.proj, "a.py"), "w", encoding="utf-8") as f:
+            f.write("x = 1\n")
+
+        self.srv = server._Server(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+        self.port = self.srv.server_address[1]
+
+    def tearDown(self):
+        if self.old_home is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old_home
+        importlib.reload(config)
+
+    def apply(self, rel, new="PWNED\n"):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("POST", "/api/apply",
+                  json.dumps({"root": self.proj, "rel": rel, "new": new}),
+                  {"Content-Type": "application/json"})
+        return json.loads(c.getresponse().read())
+
+    def test_no_shape_of_path_escapes_the_folder(self):
+        for rel in ("../outside/authorized_keys", "../../etc/hosts", "/etc/hosts",
+                    "./../outside/authorized_keys", "sub/../../outside/authorized_keys"):
+            with self.subTest(rel):
+                r = self.apply(rel)
+                self.assertIn("error", r, f"{rel} was accepted")
+        with open(self.victim, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "original\n", "a file outside the folder was written")
+
+    def test_a_symlink_out_of_the_folder_is_not_a_way_in(self):
+        os.symlink(self.victim, os.path.join(self.proj, "link.py"))
+        r = self.apply("link.py")
+        self.assertIn("error", r)
+        with open(self.victim, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "original\n")
+
+    def test_an_ordinary_write_still_works(self):
+        r = self.apply("a.py", "x = 2\n")
+        self.assertIn("applied", r, r)
+        with open(os.path.join(self.proj, "a.py"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "x = 2\n")
+
+    def test_the_writer_refuses_a_change_whose_path_contradicts_its_rel(self):
+        """`Change` carries both, and only one of them was ever checked."""
+        ch = patch.Change(rel="a.py", path=self.victim, new="PWNED\n")
+        with self.assertRaises(patch.Rejected):
+            patch.apply(ch, self.proj)
+
+    def test_the_parser_and_the_writer_share_one_rule(self):
+        """They drifted apart once. Same function now, so they cannot again."""
+        for rel in ("../x", "/etc/hosts"):
+            with self.subTest(rel), self.assertRaises(patch.Rejected):
+                patch.contained(self.proj, rel)
+        self.assertEqual(patch.contained(self.proj, "a.py"),
+                         os.path.join(self.proj, "a.py"))
 
 
 if __name__ == "__main__":
