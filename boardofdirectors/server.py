@@ -119,20 +119,23 @@ def _state() -> dict:
     st = usage.status(true_calls=true_n)
     saved = config.board() or []
     paid_on = config.allow_paid()
-    seatable = catalogue.deliberative(models, allow_paid=paid_on)
+    tier = config.model_tier()
+    seatable = catalogue.deliberative(models, tier=tier)
     return {
         "key_set": bool(key), "key_masked": config.mask(key), "key_from": where,
         "catalogue": {"origin": _CACHE.get("origin"), "captured": _CACHE.get("captured"),
                       "free": len(models), "seatable": len(seatable),
                       "families": sorted({m["family"] for m in seatable})},
         "allow_paid": paid_on,
+        "model_tier": tier,
         "credits": _credits(),
         "spend_cap": config.spend_cap(),
         "locked_to_free": cost.locked_to_free(config.spend_cap()),
         "models": [{**m, "json": catalogue.speaks_json(m),
                     "seatable": any(x["id"] == m["id"] for x in seatable)}
                    for m in models
-                   if m.get("free") or paid_on],
+                   if (m.get("free") and tier != "paid")
+                   or (not m.get("free") and paid_on)],
         "board": saved,
         "tier_source": config.tier_source(),
         "build": build_stamp(),
@@ -208,6 +211,15 @@ def _paid_ok(payload: dict) -> bool:
     return bool(config.allow_paid()) and bool(payload.get("allow_paid"))
 
 
+def _tier(payload: dict) -> str:
+    """The tier this send may use. Never wider than the stored setting."""
+    stored = config.model_tier()
+    if not _paid_ok(payload):
+        return "free"
+    asked = payload.get("tier")
+    return asked if asked in ("free", "paid", "both") and asked == stored else stored
+
+
 def _board(payload: dict, on_event=None) -> dict:
     """The whole board, on this turn only, carrying the conversation so far."""
     models = _models()
@@ -230,7 +242,8 @@ def _board(payload: dict, on_event=None) -> dict:
             return {"error": "paid seats not allowed on this send: "
                              + ", ".join(blocked) + f". {why}."}
     if not members:
-        members = seats.seat(models, size=int(payload.get("size", 5)), allow_paid=paid_ok)
+        members = seats.seat(models, size=int(payload.get("size", 5)),
+                             tier=_tier(payload))
     try:
         seats.quorum(members, int(payload.get("minimum", 3)))
     except seats.NoQuorum as e:
@@ -238,7 +251,7 @@ def _board(payload: dict, on_event=None) -> dict:
 
     # Cost is checked BEFORE anything is sent. A cap is a wall.
     try:
-        chair_guess = seats.chair(models, members, allow_paid=paid_ok)
+        chair_guess = seats.chair(models, members, tier=_tier(payload))
     except seats.NoQuorum:
         chair_guess = None
     try:
@@ -271,7 +284,7 @@ def _board(payload: dict, on_event=None) -> dict:
                              members=members, minimum=int(payload.get("minimum", 3)),
                              peer_review=bool(payload.get("peer_review", True)),
                              kind=payload.get("kind", "decide"), on_event=on_event,
-                             allow_paid=paid_ok)
+                             allow_paid=paid_ok, tier=_tier(payload))
     return {
         "mode": "board", "live": live, "kind": s.kind, "estimated_usd": est.usd,
         # the members the SESSION used, not the ones that were requested
@@ -410,8 +423,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._json({"markdown": sessions.as_markdown(doc),
                                    "filename": _slug(doc.get("title", "session")) + ".md"})
             if self.path == "/api/paid":
-                if "on" in payload:
-                    config.set_allow_paid(bool(payload["on"]))
+                if "tier" in payload:
+                    config.set_model_tier(payload["tier"])
+                elif "on" in payload:
+                    config.set_model_tier("both" if payload["on"] else "free")
                 if "cap" in payload:
                     config.set_spend_cap(float(payload["cap"]))
                 _CACHE.pop("models", None)          # the seatable set just changed

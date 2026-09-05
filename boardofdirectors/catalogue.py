@@ -147,7 +147,11 @@ def base_id(model_id: str) -> str:
     return model_id.split(":", 1)[0]
 
 
-def deliberative(models: list[dict], allow_paid: bool = False) -> list[dict]:
+TIERS = ("free", "paid", "both")
+
+
+def deliberative(models: list[dict], allow_paid: bool = False,
+                 tier: str | None = None) -> list[dict]:
     """Models that could actually sit on a board.
 
     Paid models are excluded unless explicitly allowed. This is the one place in the program
@@ -166,10 +170,17 @@ def deliberative(models: list[dict], allow_paid: bool = False) -> list[dict]:
             continue
         if "text" not in (m.get("input_modalities") or ["text"]):
             continue
-        if not allow_paid and not m.get("free", True):
+        # THREE tiers, because "paid" and "free and paid" are different wants. Someone
+        # paying for quality may not want free models on the board at all - a weak free seat
+        # is not a bargain, it is a vote.
+        t = tier if tier in TIERS else ("both" if allow_paid else "free")
+        free = m.get("free", True)
+        if t == "free" and not free:
+            continue
+        if t == "paid" and free:
             continue
         # A model whose price is unknown cannot be costed, so it cannot be consented to.
-        if allow_paid and not m.get("free", True) and m.get("price_in") is None:
+        if not free and m.get("price_in") is None:
             continue
         out.append(m)
     return out

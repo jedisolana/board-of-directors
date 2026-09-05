@@ -264,15 +264,31 @@ def forget_unusable(model_id: str | None = None) -> None:
     save(cfg)
 
 
-def allow_paid() -> bool:
-    """Whether paid models may be SEATED. Off unless turned on."""
-    return bool(load().get("allow_paid", False))
+def model_tier() -> str:
+    """Which models may be seated: "free", "paid" or "both". Free unless changed.
+
+    Three, not two. "Paid" and "free and paid" are different wants: somebody paying for
+    quality may not want free models on the board at all, because a weak free seat is not a
+    bargain - it is a vote.
+    """
+    t = load().get("model_tier")
+    if t in ("free", "paid", "both"):
+        return t
+    return "both" if load().get("allow_paid") else "free"     # migrate the old boolean
 
 
-def set_allow_paid(on: bool) -> None:
+def set_model_tier(tier: str) -> None:
+    if tier not in ("free", "paid", "both"):
+        raise ValueError(f"unknown tier {tier!r}")
     cfg = load()
-    cfg["allow_paid"] = bool(on)
+    cfg["model_tier"] = tier
+    cfg.pop("allow_paid", None)
     save(cfg)
+
+
+def allow_paid() -> bool:
+    """Whether paid models may be seated at all."""
+    return model_tier() in ("paid", "both")
 
 
 def spend_cap() -> float:

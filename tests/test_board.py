@@ -623,6 +623,44 @@ class PaidSeats(unittest.TestCase):
         {**m, "free": True, "price_in": 0.0, "price_out": 0.0} for m in POOL
     ] + [paidmodel("zeta/pricey:x", 10.0, 30.0), paidmodel("eta/cheap:x", 0.02, 0.05)]
 
+    def test_three_tiers_because_paid_only_is_a_real_want(self):
+        """"Paid" and "free and paid" are different. Somebody paying for quality may not want
+        free models on the board at all - a weak free seat is not a bargain, it is a vote."""
+        free = catalogue.deliberative(self.POOLP, tier="free")
+        paid = catalogue.deliberative(self.POOLP, tier="paid")
+        both = catalogue.deliberative(self.POOLP, tier="both")
+        self.assertTrue(all(m["free"] for m in free))
+        self.assertTrue(all(not m["free"] for m in paid))
+        self.assertEqual(len(both), len(free) + len(paid))
+        self.assertTrue(free and paid, "the fixture must exercise both sides")
+
+    def test_paid_only_seats_no_free_model_even_as_chair(self):
+        b = seats.seat(self.POOLP, size=2, tier="paid")
+        self.assertTrue(b and all(not m["free"] for m in b))
+
+    def test_an_unknown_tier_falls_back_to_free(self):
+        """The safe direction. A typo must not silently widen what may be spent."""
+        d = catalogue.deliberative(self.POOLP, tier="freee")
+        self.assertTrue(all(m["free"] for m in d))
+
+    def test_the_old_boolean_setting_still_reads_as_a_tier(self):
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            config.save({"allow_paid": True})
+            self.assertEqual(config.model_tier(), "both")
+            config.save({"allow_paid": False})
+            self.assertEqual(config.model_tier(), "free")
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+
     def test_paid_models_are_not_seated_by_default(self):
         b = seats.seat(self.POOLP, size=9)
         self.assertTrue(all(m["free"] for m in b), "a default board must cost nothing")

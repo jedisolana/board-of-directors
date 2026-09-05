@@ -63,6 +63,11 @@ First release.
 - Routers (`openrouter/*`) can never hold a seat: two of them can pick the same underlying
   model and one-seat-per-family would guarantee nothing.
 
+### Three model tiers
+- **free only · paid only · both.** Paid-only is a real want: somebody paying for quality may
+  not want free models on the board at all.
+- An unrecognised tier falls back to free — a typo must not silently widen what may be spent.
+
 ### Locking spending off
 - A `$0.00` cap makes spending **impossible**, not merely unselected — it overrules the paid
   toggle and any saved board, because someone who locked spending has said so about their

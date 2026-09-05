@@ -27,7 +27,8 @@ def _rank(m: dict) -> tuple:
 
 def seat(models: list[dict], size: int = 5, need_json: bool = False,
          prompt_tokens: int = 0, completion_tokens: int = 0,
-         exclude: set[str] | None = None, allow_paid: bool = False) -> list[dict]:
+         exclude: set[str] | None = None, allow_paid: bool = False,
+         tier: str | None = None) -> list[dict]:
     """Pick up to `size` members, one per family, best first.
 
     `prompt_tokens`/`completion_tokens` apply the asymmetric fit check, so a member is never
@@ -35,7 +36,7 @@ def seat(models: list[dict], size: int = 5, need_json: bool = False,
     """
     exclude = set(exclude or set()) | set(config.unusable())
     pool = []
-    for m in catalogue.deliberative(models, allow_paid=allow_paid):
+    for m in catalogue.deliberative(models, allow_paid=allow_paid, tier=tier):
         if m["id"] in exclude:
             continue
         if need_json and not catalogue.speaks_json(m):
@@ -71,7 +72,7 @@ def quorum(members: list[dict], minimum: int = 3) -> None:
 
 def chair(models: list[dict], members: list[dict], prompt_tokens: int = 0,
           completion_tokens: int = 0, exclude: set[str] | None = None,
-          allow_paid: bool = False) -> dict:
+          allow_paid: bool = False, tier: str | None = None) -> dict:
     """The chair reads every member's answer at once, so it is chosen for CONTEXT.
 
     It is also excluded from the members it will judge: a model that both votes and counts
@@ -80,7 +81,7 @@ def chair(models: list[dict], members: list[dict], prompt_tokens: int = 0,
     seated = {m["id"] for m in members} | set(exclude or set()) | set(config.unusable())
     # The chair is chosen by the program, not the user, so it must NEVER be the thing that
     # turns a free session into a paid one. It follows the same permission as the members.
-    pool = [m for m in catalogue.deliberative(models, allow_paid=allow_paid)
+    pool = [m for m in catalogue.deliberative(models, allow_paid=allow_paid, tier=tier)
             if m["id"] not in seated
             and catalogue.fits(m, prompt_tokens, completion_tokens)[0]]
     if not pool:

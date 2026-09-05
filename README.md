@@ -238,16 +238,28 @@ consented to.
 **The cap is a wall.** Over it, the send is refused with the figure and the cap, not a warning
 you can click through.
 
-### One switch
+### Three modes
 
-**free only 🔒** ⟷ **paid allowed**
+![Free only, paid only, both](docs/fig-tiers.png)
 
-That's the whole control. Off is not "unselected" — it's a `$0.00` cap the server enforces
-before it seats anything, so nothing that costs money can run by toggle, by a saved board, or
-by anything the interface can do. It's where you start and where the switch puts you back.
+**free only** · **paid only** · **both**
 
-On asks you to confirm in words, then a **cap $0.25** chip appears beside it. Click it to
-change the number.
+Three rather than two, because *paid* and *free and paid* are different wants. Somebody paying
+for quality may not want free models on the board at all — **a weak free seat is not a
+bargain, it is a vote.**
+
+- **free only** — 18 seatable models, and the locked state
+- **paid only** — 403 seatable, no free model can take a seat or the chair
+- **both** — 421 seatable
+
+**free only is a lock, not a preference.** It sets a `$0.00` cap the server enforces before it
+seats anything, so nothing that costs money can run — not by switch, not by a saved board that
+still holds paid members, not by anything the interface can do. It is where you start and
+where the switch puts you back.
+
+The other two ask you to confirm in words, then a **cap $0.25** chip appears. Click it to
+change the number. Switching modes also drops members the new mode does not allow, so a board
+seated while spending was on cannot cost you money later.
 
 ### If you bought the $10 only for the rate limit
 
