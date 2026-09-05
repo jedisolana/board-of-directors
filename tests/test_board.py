@@ -1791,6 +1791,33 @@ class ThePage(unittest.TestCase):
             closes = len(re.findall(rf"</{tag}>", h))
             self.assertEqual(opens, closes, f"<{tag}> opened {opens} times, closed {closes}")
 
+
+    def test_every_interpolated_title_attribute_is_escaped(self):
+        """The one sink that skipped esc() was a title attribute fed from the catalogue.
+
+        Scores arrive from a third-party feed and went into `title="${scoreTip(m)}"` raw --
+        a quote in that string ends the attribute and starts whatever it likes, in a page
+        that holds the key and can write files. The rule is structural so the next attribute
+        someone adds fails here, not in a stranger's browser.
+        """
+        h = self.page()
+        for m in re.finditer(r'title="\$\{', h):
+            tail = h[m.end():m.end() + 4]
+            self.assertEqual(tail, "esc(",
+                             f"an interpolated title attribute is not escaped: "
+                             f"...{h[m.start():m.start() + 40]}...")
+
+    def test_a_score_from_the_feed_is_a_number_or_nothing(self):
+        """The server side of the same defence: a float cannot carry markup."""
+        raw = {"id": "x/y", "pricing": {}, "top_provider": {}, "architecture": {},
+               "benchmarks": {"artificial_analysis": {
+                   "coding_index": '"><img src=x onerror=alert(1)>',
+                   "intelligence_index": 61.549, "agentic_index": True}}}
+        sc = catalogue._normalise(raw)["score"]
+        self.assertIsNone(sc["coding"])
+        self.assertEqual(sc["thinking"], 61.5)
+        self.assertIsNone(sc["agentic"], "True is not a benchmark result")
+
     def test_the_endpoints_the_page_calls_are_served(self):
         h = self.page()
         called = set(re.findall(r'"(/api/[a-z_]+)"', h))

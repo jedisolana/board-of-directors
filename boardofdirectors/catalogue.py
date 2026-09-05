@@ -67,6 +67,10 @@ def is_free(model: dict) -> bool:
         return False
 
 
+def _as_score(v) -> float | None:
+    return round(float(v), 1) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
 def _normalise(m: dict) -> dict:
     tp = m.get("top_provider") or {}
     arch = m.get("architecture") or {}
@@ -91,9 +95,12 @@ def _normalise(m: dict) -> dict:
         "is_moderated": tp.get("is_moderated"),
         "input_modalities": arch.get("input_modalities") or [],
         "supported_parameters": sorted(m.get("supported_parameters") or []),
-        "score": {"thinking": aa.get("intelligence_index"),
-                  "coding": aa.get("coding_index"),
-                  "agentic": aa.get("agentic_index")},
+        # A score that is not a number is not a score. These land in the console's HTML,
+        # so the type check is also the sanitiser: nothing from a third-party feed reaches
+        # the page unless it is a float, and a float cannot carry markup.
+        "score": {"thinking": _as_score(aa.get("intelligence_index")),
+                  "coding": _as_score(aa.get("coding_index")),
+                  "agentic": _as_score(aa.get("agentic_index"))},
     }
 
 

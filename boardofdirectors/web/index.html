@@ -603,7 +603,7 @@ function paintModels(){
           ? `<div class="price free">free</div>`
           : `<div class="price">$${m.price_in}<span>/M in</span> · $${m.price_out}<span>/M out</span></div>`}
       </div>
-      <div class="score ${sc(m)==null?"none":""}" title="${scoreTip(m)}">
+      <div class="score ${sc(m)==null?"none":""}" title="${esc(scoreTip(m))}">
         <b>${sortKey==="size" ? k(m.context_length)
              : sortKey==="price" ? cents(cost1k(m))
              : (sc(m)==null ? "—" : sc(m))}</b>
