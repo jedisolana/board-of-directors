@@ -125,6 +125,16 @@ First release.
 - Score tabs say how many models they can rank, and separate scored from unscored — the
   published scores are sparse and they change.
 
+### Audited before release
+- **Atomic writes everywhere.** Every store shared one temp filename; under the parallel board
+  twelve threads lost 91% of their writes to the file holding the API key. Unique scratch
+  names, fsync before rename, a thread lock and an flock together.
+- **`0.0.0.0` removed from the loopback allowlist** — it means *every* interface, the opposite
+  of what the Host check is for.
+- **Every `open()` names its encoding**, so a UTF-8 source file does not mangle on a machine
+  whose locale is not UTF-8.
+- **Model output is escaped everywhere it reaches the page**, now with tests asserting it.
+
 ### Under it
 - Standard library only. 102 tests, no network. Ruff clean. CI on Ubuntu and macOS across
   Python 3.10, 3.12 and 3.13.
