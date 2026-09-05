@@ -46,7 +46,9 @@ def parse_model(name: str) -> dict:
         if part in ("decide", "make"):
             spec["kind"] = part
         elif part.isdigit():
-            spec["size"] = max(1, min(int(part), 12))
+            # 9 is the most the free tier can serve in a minute: N answers, then N rankings
+            # in one burst, then a chair - 9+9+1 = 19 under a limit of 20. Twelve fires 25.
+            spec["size"] = max(1, min(int(part), seats.MAX_SEATS))
     return spec
 
 
@@ -124,6 +126,7 @@ def run(payload: dict, models: list[dict], transport, *, members=None, minimum: 
         # A member that failed is reported, never folded into the answer. A caller budgeting
         # on this needs to know the decision came from four models and not five.
         "failures": [{"model": f.model, "reason": f.reason} for f in s.failures],
+        "rankings_received": len(s.rankings), "rankings_failed": len(s.ranking_failures),
         "no_quorum": s.no_quorum,
     }
     if s.no_quorum:

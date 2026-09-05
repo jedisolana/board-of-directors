@@ -313,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     u = sub.add_parser("ui", help="open the console in your browser (local only)")
     u.add_argument("--port", type=int, default=8420)
     u.add_argument("--no-open", action="store_true", help="do not open a browser")
-    u.set_defaults(fn=lambda a: server.serve(a.port, not a.no_open))
+    u.set_defaults(fn=lambda a: server.serve(a.port, not a.no_open, offline=a.offline))
 
     z = sub.add_parser("reset-count", help="forget today's request count and start clean")
     z.set_defaults(fn=cmd_reset)
@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
     try:
         if not args.cmd:                  # bare `board` -> open the console
-            return server.serve()
+            return server.serve(offline=args.offline)
         rc = args.fn(args)
     except (EOFError, KeyboardInterrupt):
         # `setup` and `pick` ask questions. Ctrl-C, Ctrl-D, or a closed stdin (a script, a

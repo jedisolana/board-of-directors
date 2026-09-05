@@ -480,8 +480,8 @@ async function api(path, body){
 
 function paintHeader(){
   const u = S.usage;
-  $("#hKey").textContent = S.key_set ? S.key_masked : "not set";
-  $("#hKey").style.color = S.key_set ? "var(--good)" : "var(--warn)";
+  $("#hKey").textContent = S.demo ? "demo (offline stub)" : S.key_set ? S.key_masked : "not set";
+  $("#hKey").style.color = S.demo ? "var(--dim)" : S.key_set ? "var(--good)" : "var(--warn)";
   // Never render a nonsense fraction like 58/50. Going past the allowance is real
   // information - the meter is wrong, or something else is using this key - so it is said
   // in words rather than shown as an impossible ratio.
@@ -636,13 +636,15 @@ function paintModels(){
   }
   // families is the real ceiling: one seat per company, so there is no honest board bigger
   // than the number of companies with a usable model in the current mode.
-  const maxSeats = Math.min(12, new Set(S.models.filter(m => m.seatable).map(m => m.family)).size);
+  const maxSeats = Math.min(9, new Set(S.models.filter(m => m.seatable).map(m => m.family)).size);   // 9: see the title below
   seatCount = Math.max(2, Math.min(seatCount, maxSeats));
   $("#seatN").textContent = board.length || seatCount;
   $("#seatDown").disabled = (board.length || seatCount) <= 2;
   $("#seatUp").disabled = (board.length || seatCount) >= maxSeats;
-  $("#seatN").title = `${maxSeats} companies available in this mode — `
-    + `one seat each, so that is the ceiling.`;
+  $("#seatN").title = maxSeats === 9
+    ? `9 is the most the free tier can serve in a minute: 9 answers, 9 rankings and a chair is `
+      + `19 requests against a limit of 20.`
+    : `${maxSeats} companies available in this mode — one seat each, so that is the ceiling.`;
   $("#bMeta").textContent = board.length
       ? `${board.length} seated · ${new Set(board.map(id=>byId(id).family)).size} families`
       : "none chosen — auto at run time";
@@ -893,12 +895,18 @@ function boardTurn(){
       stage.remove();
       const w = d.querySelector("[data-who]");
       w.textContent = w.textContent.replace(/\d+ seats/, `${r.answers.length} answered`)
+                      + (r.rankings_failed ? ` · ${r.rankings} of ${r.rankings + r.rankings_failed} ranked` : "")
                       + ` · ${r.calls} requests`;
       if(r.failures && r.failures.length){
         const el = document.createElement("div");
         el.className = "note warn";
+        const same = r.failures.length > 1 && r.failures.every(f => f.reason === r.failures[0].reason);
         el.innerHTML = `<b>${r.failures.length} member(s) did not answer &mdash; not counted as agreement</b>`
-          + `<ul>${r.failures.map(f=>`<li><b>${esc(label(f.model))}</b> &mdash; ${esc(f.reason)}</li>`).join("")}</ul>`;
+          + (same ? `<div>all ${r.failures.length} failed the same way: ${esc(r.failures[0].reason)}`
+                    + (/unreachable|resolve|timed out|connection/i.test(r.failures[0].reason)
+                       ? ` <span style="color:var(--dimmer)">&mdash; that is the network, not the models. Are you online?</span>` : "")
+                    + `</div>`
+                  : `<ul>${r.failures.map(f=>`<li><b>${esc(label(f.model))}</b> &mdash; ${esc(f.reason)}</li>`).join("")}</ul>`);
         d.querySelector("[data-members]").after(el);
       }
       scroll();
@@ -1467,7 +1475,7 @@ $("#keySave").onclick = async () => {
   paint();
   paintKeyState(); paintMgmtState();
   await paintSessions();
-  if(!S.key_set) $("#dKey").showModal();
+  if(!S.key_set && !S.demo) $("#dKey").showModal();   // demo mode has nothing to ask for
   $("#input").focus();
 })();
 // Fold the board and the saved list away, so the model list gets the room. Someone browsing

@@ -79,9 +79,16 @@ def _models(refresh: bool = False) -> list[dict]:
     return _CACHE["models"]
 
 
+# `board --offline ui`: the whole console on the built-in stub. No key, no request, no network.
+# It existed as a flag before it existed as a behaviour - the CLI accepted --offline for `ui`
+# and dropped it on the floor, and the README promised the screenshots were reproducible
+# "without a key" on the strength of it. Now the promise is kept: the flag reaches here.
+DEMO = False
+
+
 def _transport(offline: bool):
     key, _ = config.api_key()
-    if offline or not key:
+    if DEMO or offline or not key:
         return OfflineTransport(), False
     return OpenRouterTransport(key, app_title="Board of Directors"), True
 
@@ -125,6 +132,7 @@ def _state() -> dict:
     tier = config.model_tier()
     seatable = catalogue.deliberative(models, tier=tier)
     return {
+        "demo": DEMO,
         "key_set": bool(key), "key_masked": config.mask(key), "key_from": where,
         "catalogue": {"origin": _CACHE.get("origin"), "captured": _CACHE.get("captured"),
                       "free": len(models), "seatable": len(seatable),
@@ -309,7 +317,7 @@ def _board(payload: dict, on_event=None) -> dict:
                      "vote": board.read_vote(a.text),
                      "text": board.strip_vote(a.text)} for a in s.answers],
         "failures": [{"model": f.model, "reason": f.reason} for f in s.failures],
-        "rankings": len(s.rankings),
+        "rankings": len(s.rankings), "rankings_failed": len(s.ranking_failures),
         "decision": s.decision, "no_quorum": s.no_quorum, "calls": s.requests,
     }
 
@@ -680,7 +688,7 @@ def _in_use(port: int) -> bool:
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
-def serve(port: int = 8420, open_browser: bool = True) -> int:
+def serve(port: int = 8420, open_browser: bool = True, offline: bool = False) -> int:
     """Start the console. Returns a shell exit code rather than raising a traceback.
 
     Running it twice is the single most likely mistake, and the bare OSError for it is
@@ -688,6 +696,8 @@ def serve(port: int = 8420, open_browser: bool = True) -> int:
     a stack trace as an error message: it names the syscall that failed and not one thing the
     reader can do. It should say the console is already running, and where.
     """
+    global DEMO
+    DEMO = offline
     url = f"http://127.0.0.1:{port}/"
     if _in_use(port):
         if _is_ours(port):
@@ -704,7 +714,8 @@ def serve(port: int = 8420, open_browser: bool = True) -> int:
 
     _models()
     with _Server(("127.0.0.1", port), Handler) as httpd:
-        print(f"\n  Board of Directors -> {url}   (build {build_stamp()})")
+        print(f"\n  Board of Directors -> {url}   (build {build_stamp()})"
+              + ("   DEMO: offline stub, no key, nothing leaves this machine" if DEMO else ""))
         print(f"  OpenAI-compatible  -> {url}v1   (model: board, board:make, board:3)")
         print("  local only: 127.0.0.1, your key stays on this machine.")
         print("  ctrl-c to stop.\n")

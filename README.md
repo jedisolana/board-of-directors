@@ -50,7 +50,8 @@ have to spend the ten dollars. Details under *[What the free tier gives you](#wh
 
 > **On the screenshots.** The two under *Here it is working* are real sessions against live
 > models — the text is what those models actually said. The interface shots use the built-in
-> offline stub, so anyone can reproduce them without a key or a request. Nothing is a mock-up.
+> offline stub — `board --offline` opens the whole console on it, no key, no request, nothing
+> leaves your machine — so anyone can reproduce them. Nothing is a mock-up.
 
 Using it from your own code? → **[docs/library.md](docs/library.md)**
 Eight ready-made shapes are in there too — `recipes.dream`, `brainstorm`, `build`, `red_team`,

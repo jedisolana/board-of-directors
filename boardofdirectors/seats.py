@@ -29,6 +29,10 @@ def _rank(m: dict) -> tuple:
 # tie sounds like it should, because this board reports a tie as SPLIT rather than resolving
 # it - so the useful property is BREADTH, and six covers six companies instead of five.
 DEFAULT_SEATS = 6
+# The most seats the free tier can actually serve: a board fires N answers, then N rankings in
+# one burst, then a chair, inside about a minute - and free models allow 20 requests a minute.
+# 9+9+1 = 19 fits. 12 fires 25, and the rankings it loses to the limit used to vanish silently.
+MAX_SEATS = 9
 
 
 def seat(models: list[dict], size: int = DEFAULT_SEATS, need_json: bool = False,

@@ -2707,5 +2707,78 @@ class ACutOffQuestionIsACancel(unittest.TestCase):
                 self.assertNotIn("Traceback", out.getvalue())
 
 
+class DemoMode(unittest.TestCase):
+    """`board --offline ui` accepted the flag and dropped it. The README promised the screenshots
+    were reproducible without a key on the strength of that flag. Now it reaches the console."""
+
+    def tearDown(self):
+        server.DEMO = False
+
+    def test_the_flag_switches_every_request_to_the_stub(self):
+        server.DEMO = True
+        t, live = server._transport(offline=False)
+        self.assertIsInstance(t, OfflineTransport)
+        self.assertFalse(live)
+        self.assertTrue(server._state()["demo"])
+
+    def test_the_cli_passes_it_through(self):
+        from unittest import mock
+
+        from boardofdirectors import cli
+        with mock.patch.object(server, "serve", return_value=0) as srv:
+            cli.main(["--offline", "ui", "--no-open", "--port", "1"])
+        self.assertTrue(srv.call_args.kwargs.get("offline"), "the flag was dropped on the way")
+
+    def test_the_page_does_not_ask_for_a_key_in_demo(self):
+        with open(os.path.join(os.path.dirname(server.__file__), "web", "index.html"),
+                  encoding="utf-8") as f:
+            h = f.read()
+        self.assertIn("!S.key_set && !S.demo", h)
+
+
+class TheCeilingIsWhatTheMinuteCanServe(unittest.TestCase):
+    """Twelve seats fire 25 requests inside a minute against a free-tier limit of 20. The
+    rankings that lost used to vanish: not counted, not shown, not told to the chair."""
+
+    def test_nine_is_the_most_anywhere(self):
+        self.assertEqual(seats.MAX_SEATS, 9)
+        self.assertEqual(openai_api.parse_model("board:12")["size"], 9)
+        self.assertEqual(openai_api.parse_model("board:9")["size"], 9)
+        with open(os.path.join(os.path.dirname(server.__file__), "web", "index.html"),
+                  encoding="utf-8") as f:
+            self.assertIn("Math.min(9,", f.read())
+
+    def test_a_lost_ranking_is_counted_reported_and_told_to_the_chair(self):
+        pool = [model(f"f{i}/m:free") for i in range(8)]
+        loser = pool[1]["id"]
+        chair_saw = []
+
+        class OneRankerDown(OfflineTransport):
+            def ask(self, m, messages):
+                text = messages[-1]["content"]
+                if "Rank them" in text and m["id"] == loser:
+                    return Failure(m["id"], "rate limited", status=429)
+                if "BLIND RANKINGS" in text:
+                    chair_saw.append(text)
+                return super().ask(m, messages)
+
+        s = board.ask("ship it?", transport=OneRankerDown(), models=pool, members=pool[:4],
+                      live_catalogue=False)
+        self.assertEqual(len(s.ranking_failures), 1)
+        self.assertEqual(s.ranking_failures[0].model, loser)
+        self.assertEqual(len(s.rankings), 3)
+        self.assertEqual(s.requests, 4 + 3 + 1 + 1, "a failed ranking was still a request")
+        self.assertIn("RANKINGS: 3 of 4 received", s.report())
+        self.assertIn("3 of 4 members returned a ranking", chair_saw[0])
+
+    def test_identical_failures_are_said_once(self):
+        pool = [model(f"f{i}/m:free") for i in range(8)]
+        t = OfflineTransport(fail={m["id"] for m in pool[:4]})
+        s = board.ask("ship it?", transport=t, models=pool, members=pool[:4], live_catalogue=False)
+        rep = s.report()
+        self.assertIn("all 4 failed the same way", rep)
+        self.assertEqual(rep.count("rate limited (simulated)"), 1, "the same reason was listed per member")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

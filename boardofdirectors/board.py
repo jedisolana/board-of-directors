@@ -140,6 +140,7 @@ class Session:
     answers: list[Answer] = field(default_factory=list)
     failures: list[Failure] = field(default_factory=list)
     rankings: list[Answer] = field(default_factory=list)
+    ranking_failures: list[Failure] = field(default_factory=list)   # a lost ranking is a fact
     chair_failures: list[dict] = field(default_factory=list)
     tally: dict = field(default_factory=dict)
     labels: dict[str, str] = field(default_factory=dict)   # label -> model id
@@ -153,7 +154,8 @@ class Session:
 
     @property
     def requests(self) -> int:
-        return len(self.answers) + len(self.failures) + len(self.rankings) + (1 if self.decision else 0)
+        return (len(self.answers) + len(self.failures) + len(self.rankings)
+                + len(self.ranking_failures) + (1 if self.decision else 0))
 
     def report(self) -> str:
         out = [f"QUESTION: {self.question}", ""]
@@ -175,9 +177,21 @@ class Session:
             out.append("")
         if self.failures:
             out.append(f"  DID NOT VOTE ({len(self.failures)}) -- not counted as agreement:")
-            for f in self.failures:
+            reasons = {f.reason for f in self.failures}
+            same = len(self.failures) > 1 and len(reasons) == 1
+            if same:
+                # Six lines of "Network is unreachable" is one fact said six times. Say it once,
+                # and name what it almost always is.
+                why = next(iter(reasons))
+                out.append(f"    all {len(self.failures)} failed the same way: {why}")
+                if any(w in why.lower() for w in ("unreachable", "resolve", "timed out", "connection")):
+                    out.append("    (that pattern is the network, not the models - are you online?)")
+            for f in ([] if same else self.failures):
                 out.append(f"        {f.model}: {f.reason}")
             out.append("")
+        if self.ranking_failures:
+            out.append(f"  RANKINGS: {len(self.rankings)} of "
+                       f"{len(self.rankings) + len(self.ranking_failures)} received")
         if self.no_quorum:
             out.append(f"NO QUORUM: {self.no_quorum}")
         else:
@@ -366,9 +380,18 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
             if r.ok:
                 s.rankings.append(r)
                 emit(type="ranked", model=m["id"])
+            else:
+                # A ranking that did not arrive used to vanish: not counted, not shown, not
+                # told to the chair. Twelve seats on the free tier lose several this way
+                # to the 20-a-minute limit, and the decision read as if everyone had ranked.
+                s.ranking_failures.append(r)
+                emit(type="rank_failed", model=m["id"], reason=r.reason)
 
     # 3. the chair
     ranked = "\n\n".join(f"--- ranking by a member ---\n{r.text}" for r in s.rankings) or "(none)"
+    if s.ranking_failures:
+        ranked += (f"\n\n({len(s.rankings)} of {len(s.rankings) + len(s.ranking_failures)} "
+                   f"members returned a ranking; the rest did not answer in time.)")
     t = tally(s.answers)
     s.tally = t
     tally_line = (f"{t['FOR']} for, {t['AGAINST']} against, {t['DEPENDS']} conditional"
