@@ -372,12 +372,41 @@ class TwoKindsOfQuestion(unittest.TestCase):
         self.assertNotIn("DECISION (chair)", s.report())
 
     def test_the_guess_separates_tasks_from_questions(self):
+        """A DECISION is phrased as a question. Everything else is work.
+
+        The first version listed task verbs and missed four in five: "draw a picture using
+        characters" went to DECIDE, so a board asked to draw a dollar sign spent eleven
+        requests voting on whether drawing it was PERMITTED and resolved that it "is
+        approved". A verb list can never be complete and every word missing from it fails
+        that way, so the test is now the other way round.
+        """
         for q in ("build me an FPS game", "write a TOML parser",
-                  "fix the crash in transport.py", "refactor this module"):
+                  "fix the crash in transport.py", "refactor this module",
+                  "draw a picture using characters and signs",
+                  "summarise this in three bullets", "give me a regex for emails",
+                  "turn this into a table", "ascii art of a cat",
+                  "a haiku about databases"):
             self.assertTrue(board.looks_like_a_task(q), q)
         for q in ("should we rewrite the parser?", "is postgres better than sqlite?",
-                  "which model is best for this?", "do we need a queue here?"):
+                  "which model is best for this?", "do we need a queue here?",
+                  "what is the tradeoff", "would you use microservices",
+                  "why did this fail", "is it worth it", "has anyone shipped this"):
             self.assertFalse(board.looks_like_a_task(q), q)
+
+    def test_ambiguity_lands_on_make(self):
+        """Being handed the work when you wanted an opinion is a mild disappointment. Being
+        handed a vote on whether your request is allowed is useless."""
+        self.assertTrue(board.looks_like_a_task("the parser"))
+        self.assertTrue(board.looks_like_a_task("something about caching"))
+
+    def test_decide_tells_members_to_do_the_work_if_that_is_what_was_asked(self):
+        """A failsafe: a mis-set mode should degrade to something useful, not something
+        absurd. No member should be voting on whether a request is permissible."""
+        t = OfflineTransport()
+        board.ask("draw a cat", transport=t, models=POOL, size=3, kind="decide")
+        first = t.calls[0][1]
+        self.assertIn("ACTUALLY A REQUEST TO DO SOMETHING", first)
+        self.assertIn("nobody asked you that", first)
 
 
 class TheKeyBox(unittest.TestCase):

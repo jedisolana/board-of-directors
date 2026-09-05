@@ -42,6 +42,9 @@ ANSWER_PROMPT = (
     "You are one member of an independent board. Answer the question on your own judgement.\n"
     "Be specific and brief: your position, then the single strongest reason for it, then the "
     "one thing that would change your mind.\n\n"
+    "IF THE QUESTION IS ACTUALLY A REQUEST TO DO SOMETHING rather than a decision to make, "
+    "do it, and let your position be your attempt. Do not vote on whether the request is "
+    "permissible or possible - nobody asked you that.\n\n"
     "End your answer with a single line, exactly:\n"
     "VOTE: FOR      (you support the proposal)\n"
     "VOTE: AGAINST  (you oppose it)\n"
@@ -378,18 +381,35 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
             return s
 
 
-# A cheap guess at which kind of question this is, used only to SUGGEST a mode in the UI.
-# It never switches on its own: getting this wrong silently would be worse than asking.
-_MAKE_HINTS = (
-    "build", "write", "make", "create", "generate", "implement", "code", "draft",
-    "design a", "refactor", "fix", "add a", "convert", "translate", "rewrite",
+# WHICH KIND OF QUESTION IS THIS. Used only to SUGGEST a mode in the console; it never
+# switches on its own.
+#
+# The first version listed task verbs - build, write, make, create - and missed four out of
+# five real ones. "draw a picture using characters" went to DECIDE, so a board that was asked
+# to draw a dollar sign spent eleven requests VOTING ON WHETHER DRAWING IT WAS PERMITTED, and
+# resolved that the request "is approved". Absurd, and entirely my doing: a list of verbs can
+# never be complete, and every word missing from it fails in that direction.
+#
+# So the test is the other way round. A DECISION is phrased as a question - "should we", "is
+# X better", "which one". Everything else is work. Ambiguity now lands on MAKE, which is the
+# safe direction here: being handed the work when you wanted an opinion is a mild
+# disappointment, while being handed a vote on whether your request is allowed is useless.
+QUESTION_OPENERS = (
+    "should ", "shall ", "is ", "are ", "was ", "were ", "do ", "does ", "did ", "can ",
+    "could ", "would ", "will ", "which ", "why ", "who ", "whose ", "am i", "have we",
+    "has ", "must ", "ought ", "may we", "might ",
 )
+# "what is X" asks; "what would you build" is still a question. Both are decisions.
+QUESTION_PHRASES = ("what is", "what are", "what would", "what should", "how should",
+                    "how do you feel", "worth it", "better than", "or should")
 
 
 def looks_like_a_task(q: str) -> bool:
-    """True when the question reads like work to do rather than a call to make."""
-    first = (q or "").strip().lower()
-    if first.startswith(("should ", "is ", "are ", "do we", "does ", "which ", "would ",
-                         "can we", "why ", "what is", "what are")):
+    """True when the text reads like work to do rather than a call to make."""
+    t = " ".join((q or "").split()).strip().lower()
+    if not t:
         return False
-    return any(first.startswith(w) or f" {w} " in first[:80] for w in _MAKE_HINTS)
+    if t.startswith(QUESTION_OPENERS) or any(p in t[:80] for p in QUESTION_PHRASES):
+        return False
+    # A bare question mark and nothing else to go on: treat it as a question.
+    return not t.rstrip().endswith("?")
