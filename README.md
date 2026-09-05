@@ -238,6 +238,17 @@ consented to.
 **The cap is a wall.** Over it, the send is refused with the figure and the cap, not a warning
 you can click through.
 
+### One switch
+
+**free only 🔒** ⟷ **paid allowed**
+
+That's the whole control. Off is not "unselected" — it's a `$0.00` cap the server enforces
+before it seats anything, so nothing that costs money can run by toggle, by a saved board, or
+by anything the interface can do. It's where you start and where the switch puts you back.
+
+On asks you to confirm in words, then a **cap $0.25** chip appears beside it. Click it to
+change the number.
+
 ### If you bought the $10 only for the rate limit
 
 Plenty of people will. It moves free models from 50 to 1000 requests a day and is never meant

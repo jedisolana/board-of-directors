@@ -234,7 +234,7 @@
     <div class="sorts" style="padding-top:0">
       <button class="sort on" id="fFree">free only</button>
       <button class="sort" id="fPaid">include paid</button>
-      <button class="sort" id="fLock" title="make spending impossible, not merely unselected">🔒</button>
+      <button class="sort" id="fCap" hidden title="most one session may cost"></button>
     </div>
     <div class="models" id="models"></div>
     <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
@@ -533,42 +533,57 @@ function paintModels(){
 function paint(){ paintHeader(); paintModels(); paintPaidToggle(); }
 
 function paintPaidToggle(){
-  const locked = !!(S && S.locked_to_free);
-  const on = !!(S && S.allow_paid) && !locked;
+  // ONE decision, two states. OFF is not "unselected" - it is a $0.00 cap the server
+  // enforces before it seats anything. So the safe state is where you start, and where the
+  // switch puts you back, rather than a third control to remember.
+  const on = !!(S && S.allow_paid) && !(S && S.locked_to_free);
   $("#fFree").classList.toggle("on", !on);
   $("#fPaid").classList.toggle("on", on);
-  $("#fPaid").disabled = locked;
-  $("#fPaid").style.opacity = locked ? .4 : 1;
-  $("#fLock").classList.toggle("on", locked);
-  $("#fLock").textContent = locked ? "🔒 locked" : "🔓";
-  $("#fLock").title = locked
-    ? "Spending is impossible: cap is $0.00. Your balance still buys the higher free rate "
-      + "limit. Click to unlock."
-    : "Lock spending off entirely — the balance keeps buying the higher rate limit without "
-      + "ever being spent.";
+  $("#fFree").textContent = on ? "free only" : "free only \u{1F512}";
+  $("#fFree").title = on
+    ? "Lock spending off. Your balance keeps buying the higher free rate limit; it just never gets spent."
+    : "Spending is locked off: nothing that costs money can run.";
+  const cap = $("#fCap");
+  cap.hidden = !on;
+  if(on){
+    cap.textContent = `cap $${(S.spend_cap || 0).toFixed(2)}`;
+    cap.title = "The most one session may cost. Over it, the send is refused. Click to change.";
+  }
 }
 
 // Plenty of people buy the $10 for the rate limit alone and never mean to spend it. For them
-// the balance is a key, not a wallet, and "paid is merely switched off" is one stray click
-// away from being wrong.
-async function setLock(on){
+// the balance is a key, not a wallet, and "paid is merely switched off" would be one stray
+// click away from being wrong - so off is a cap of zero, enforced on the server.
+async function setPaid(on){
   if(on){
-    S = await api("/api/paid", {on:false, cap:0});
-    note("Spending locked off", "Nothing that costs money can run now — not by toggle, not "
-       + "by a saved board. Your balance still buys the higher free rate limit; it just "
-       + "never gets spent.", "warn");
+    if(!confirm("Allow paid models?\n\nSeating one spends real money from your OpenRouter "
+        + "balance. Every session shows its cost before you send, and a per-session cap "
+        + "refuses anything above it.\n\nYour balance buys the higher free rate limit "
+        + "whether you spend it or not - turning this on is not needed for that.")) return;
+    const cap = (S.spend_cap > 0) ? S.spend_cap : 0.25;
+    S = await api("/api/paid", {on: true, cap});
+    note("Paid models allowed", `Sessions may cost up to <b>$${cap.toFixed(2)}</b>. Click the `
+       + `cap to change it, or <b>free only</b> to lock spending off again.`, "warn");
   } else {
-    const cap = prompt("Unlock spending. Maximum cost for ONE session, in dollars:", "0.25");
-    if(cap === null) return;
-    const n = parseFloat(cap);
-    if(!(n > 0)) return note("Still locked", "A cap of zero means spending stays off.", "warn");
-    S = await api("/api/paid", {cap:n});
-    note("Spending unlocked", `Sessions may now cost up to <b>$${n.toFixed(2)}</b>. `
-       + `Paid models are still off until you turn them on.`, "warn");
+    S = await api("/api/paid", {on: false, cap: 0});
+    board = board.filter(id => byId(id) && byId(id).free);
+    await api("/api/board", {board});
+    note("Spending locked off", "Nothing that costs money can run - not by toggle, not by a "
+       + "saved board. Your balance still buys the higher free rate limit.", "warn");
   }
   paint();
 }
-$("#fLock").onclick = () => setLock(!(S && S.locked_to_free));
+$("#fFree").onclick = () => { if(S && S.allow_paid && !S.locked_to_free) setPaid(false); };
+$("#fPaid").onclick = () => { if(!S || !S.allow_paid || S.locked_to_free) setPaid(true); };
+$("#fCap").onclick = async () => {
+  const v = prompt("Most one session may cost, in dollars:", (S.spend_cap || 0.25).toFixed(2));
+  if(v === null) return;
+  const n = parseFloat(v);
+  if(!(n > 0)) return note("Use `free only` to stop spending",
+      "A cap of zero IS the locked state, and the switch says it more clearly.", "warn");
+  S = await api("/api/paid", {cap: n});
+  paint();
+};
 
 // The estimate is shown BEFORE the send, never reported after it. A cost you learn afterwards
 // is a bill, not a decision.
@@ -587,18 +602,7 @@ function refreshMoney(){
   }, 250);
 }
 
-async function setPaid(on){
-  if(on && !confirm("Turn on paid models?\n\nSeating a paid model spends real money from "
-      + "your OpenRouter balance. Every session shows its estimated cost before you send it, "
-      + "and a spend cap blocks anything above it.")) return;
-  S = await api("/api/paid", {on});
-  // a board seated while paid was on may now contain models that are no longer allowed
-  board = board.filter(id => byId(id) && (byId(id).free || S.allow_paid));
-  await api("/api/board", {board});
-  paint();
-}
-$("#fFree").onclick = () => setPaid(false);
-$("#fPaid").onclick = () => setPaid(true);
+
 
 function note(title, body, kind){
   const d = document.createElement("div");
