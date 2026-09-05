@@ -2261,5 +2261,56 @@ class BlindMeansBlindToYourselfToo(unittest.TestCase):
                     self.assertIn(block, rp, f"{other}'s label changed for ranker {mid}")
 
 
+class TheChairWalkIsBudgeted(unittest.TestCase):
+    """Four failed chairs is a fallback; eighteen is a death march.
+
+    At the edge of the daily limit this is the common case, not the strange one: the members
+    spend the last requests answering, and then every chair candidate 429s. The reset is at
+    midnight, not fifteen seconds from now -- walking the whole catalogue from there costs
+    two requests and a backoff per candidate for a conclusion that is already foregone.
+    """
+
+    class ChairsAllDown(OfflineTransport):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.chairs_asked = []
+
+        def ask(self, m, messages):
+            if "BLIND RANKINGS" in messages[-1]["content"]:
+                self.chairs_asked.append(m["id"])
+                return Failure(m["id"], "rate limited", status=429)
+            return super().ask(m, messages)
+
+    def test_four_failed_chairs_end_the_walk(self):
+        pool = [model(f"fam{i}/m:free") for i in range(20)]
+        t = self.ChairsAllDown()
+        s = board.ask("ship it?", transport=t, models=pool, members=pool[:4],
+                      live_catalogue=False)
+        self.assertEqual(len(t.chairs_asked), 4, "the walk was not capped")
+        self.assertEqual(len(s.answers), 4, "the members' answers were thrown away")
+        self.assertIn("chairs failed in a row", s.no_quorum)
+
+    def test_one_bad_chair_still_falls_through_to_a_good_one(self):
+        """The cap must not break the fallback it is capping."""
+        pool = [model(f"fam{i}/m:free") for i in range(8)]
+
+        class FirstChairDown(OfflineTransport):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                self.fell = []
+
+            def ask(self, m, messages):
+                if "BLIND RANKINGS" in messages[-1]["content"] and not self.fell:
+                    self.fell.append(m["id"])
+                    return Failure(m["id"], "rate limited", status=429)
+                return super().ask(m, messages)
+
+        s = board.ask("ship it?", transport=FirstChairDown(), models=pool,
+                      members=pool[:4], live_catalogue=False)
+        self.assertIsNone(s.no_quorum)
+        self.assertTrue(s.decision)
+        self.assertEqual(len(s.chair_failures), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

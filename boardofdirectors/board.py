@@ -383,6 +383,19 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
         reason = r.reason
         s.chair_failures.append({"model": chair_model["id"], "reason": r.reason})
         emit(type="chair_failed", model=chair_model["id"], reason=r.reason)
+        # Four candidates is a fallback; eighteen is a death march. When the chairs keep
+        # failing, the cause is almost always systemic -- the daily limit, most of all, which
+        # resets at midnight and not fifteen seconds from now. Walking the whole catalogue
+        # from there costs two requests and a backoff per candidate, minutes of "chairing"
+        # churn, and spends allowance on a conclusion that is already foregone. The members'
+        # answers are safe either way; only the synthesis is given up.
+        if len(tried) >= 4:
+            s.no_quorum = (f"{len(s.answers)} member(s) answered, but {len(tried)} chairs "
+                           f"failed in a row (last: {reason}) — that pattern is the account "
+                           "or the service, not the models. Their answers are above; the "
+                           "synthesis is missing, not the board.")
+            emit(type="no_quorum", reason=s.no_quorum)
+            return s
         try:
             chair_model = seats.chair(models, members, exclude=set(tried),
                                       allow_paid=allow_paid, tier=tier)
