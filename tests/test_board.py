@@ -261,7 +261,9 @@ class BoardSession(unittest.TestCase):
         for p in ranking_prompts:
             for mid in ids:
                 self.assertNotIn(mid, p, "a model id leaked into the blind ranking round")
-            self.assertIn("Member A", p)
+            # Labelled blocks, one per OTHER member: a ranker judges everyone but itself,
+            # so with four answers each ranking prompt carries exactly three.
+            self.assertEqual(p.count("--- Member "), 3)
 
     def test_members_answer_independently(self):
         """No member may see another member's answer in round one."""
@@ -2188,6 +2190,75 @@ class TheOnlyPlaceThatWrites(unittest.TestCase):
                 patch.contained(self.proj, rel)
         self.assertEqual(patch.contained(self.proj, "a.py"),
                          os.path.join(self.proj, "a.py"))
+
+
+class BlindMeansBlindToYourselfToo(unittest.TestCase):
+    """The ranking prompt has always said "the other members' answers".
+
+    The code sent all of them, own answer included, so every member quietly judged a line-up
+    with itself in it. Models prefer their own text even with the name taken off -- that is
+    the exact bias a jury drawn from different companies exists to kill, and it ran through
+    every board this program ever convened.
+    """
+
+    def run_board(self):
+        sent = {}
+
+        class Spy(OfflineTransport):
+            def ask(self, m, messages):
+                sent.setdefault(m["id"], []).append(messages[-1]["content"])
+                return super().ask(m, messages)
+
+        s = board.ask("Should we ship on Friday?", transport=Spy(), models=POOL,
+                      members=POOL[:3], live_catalogue=False)
+        return s, sent
+
+    def rank_prompt(self, sent, mid):
+        got = [p for p in sent[mid] if "Rank them" in p]
+        return got[0] if got else None
+
+    def test_no_ranker_is_shown_its_own_answer(self):
+        s, sent = self.run_board()
+        own = {a.model: a.text for a in s.answers}
+        for mid in own:
+            rp = self.rank_prompt(sent, mid)
+            if rp is None:
+                continue
+            self.assertNotIn(own[mid], rp, f"{mid} was asked to rank itself")
+
+    def test_every_ranker_still_sees_everyone_else(self):
+        """Excluding yourself must not become excluding anybody."""
+        s, sent = self.run_board()
+        own = {a.model: a.text for a in s.answers}
+        for mid in own:
+            rp = self.rank_prompt(sent, mid)
+            if rp is None:
+                continue
+            for other, text in own.items():
+                if other != mid:
+                    self.assertIn(text, rp, f"{mid} was not shown {other}'s answer")
+
+    def test_the_chair_still_reads_the_full_blind_set(self):
+        """The chair did not answer, so nothing is its own; it needs all of them."""
+        s, sent = self.run_board()
+        chair_prompts = [p for p in sent[s.chair_model["id"]] if "BLIND RANKINGS" in p]
+        self.assertTrue(chair_prompts)
+        for a in s.answers:
+            self.assertIn(a.text, chair_prompts[0])
+
+    def test_labels_stay_global_across_rankers(self):
+        """Member B must mean the same answer in every ranking the chair lines up."""
+        s, sent = self.run_board()
+        by_model = {v: k for k, v in s.labels.items()}
+        own = {a.model: a.text for a in s.answers}
+        for mid in own:
+            rp = self.rank_prompt(sent, mid)
+            if rp is None:
+                continue
+            for other in own:
+                if other != mid:
+                    block = f"--- {by_model[other]} ---"
+                    self.assertIn(block, rp, f"{other}'s label changed for ranker {mid}")
 
 
 if __name__ == "__main__":

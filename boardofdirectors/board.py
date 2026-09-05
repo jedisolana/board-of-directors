@@ -205,7 +205,10 @@ def _ask_all(transport, models: list[dict], messages: list[dict], deadline: floa
     # took 3s until this was unwound.
     pool = cf.ThreadPoolExecutor(max_workers=max(1, len(models)))
     try:
-        futures = {pool.submit(transport.ask, m, messages): m for m in models}
+        # `messages` is one conversation for everyone, or a function of the member when
+        # each seat must see something different -- a ranker must not see its own answer.
+        msgs_for = messages if callable(messages) else (lambda _m: messages)
+        futures = {pool.submit(transport.ask, m, msgs_for(m)): m for m in models}
         try:
             for fut in cf.as_completed(futures, timeout=deadline):
                 out.append((futures[fut], fut.result()))
@@ -334,12 +337,23 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
 
     # 2. blind peer ranking
     if peer_review and len(s.answers) > 1:
-        rp = (MAKE_RANK_PROMPT if make else RANK_PROMPT).format(q=question, answers=blind_text)
         rankers = [m for m in members if any(a.model == m["id"] for a in s.answers)]
+        by_model = {v: k for k, v in s.labels.items()}
+
+        def rank_messages(m):
+            # Everyone's answer but the ranker's own. The prompt has always said "the other
+            # members' answers"; the code used to send all of them, so each member quietly
+            # judged a line-up with itself in it -- and models prefer their own text even
+            # blinded, which is the exact bias a jury of different companies exists to kill.
+            # The labels stay global, so the chair can still line the rankings up.
+            others = "\n\n".join(f"--- {by_model[a.model]} ---\n{a.text}"
+                                  for a in s.answers if a.model != m["id"])
+            rp = (MAKE_RANK_PROMPT if make else RANK_PROMPT).format(q=question, answers=others)
+            return [*prior, {"role": "user", "content": rp}]
+
         for m in rankers:
             emit(type="ranking", model=m["id"])
-        for m, r in _ask_all(transport, rankers, [*prior, {"role": "user", "content": rp}],
-                             deadline):
+        for m, r in _ask_all(transport, rankers, rank_messages, deadline):
             if r.ok:
                 s.rankings.append(r)
                 emit(type="ranked", model=m["id"])
