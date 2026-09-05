@@ -1818,6 +1818,25 @@ class ThePage(unittest.TestCase):
         self.assertEqual(sc["thinking"], 61.5)
         self.assertIsNone(sc["agentic"], "True is not a benchmark result")
 
+
+    def test_the_board_and_saved_panels_can_be_folded_away(self):
+        """Browsing four hundred models with six seats and last week's sessions pinned
+        underneath left the list a third of the pane. Both fold; the fold is remembered."""
+        h = self.page()
+        for btn, body in (("foldBoard", "seated"), ("foldSaved", "sessions")):
+            self.assertIn(f'id="{btn}"', h, f"no fold button {btn}")
+            self.assertIn(f'id="{body}"', h, f"fold target {body} missing")
+        m = re.search(r"const FOLDS = \{(.*?)\}", h)
+        self.assertIsNotNone(m)
+        for pair in m.group(1).split(","):
+            btn, body = (x.strip().strip('"') for x in pair.split(":"))
+            self.assertIn(f'id="{btn}"', h)
+            self.assertIn(f'id="{body}"', h)
+        # storage is a convenience, never a dependency
+        self.assertIn("try{ localStorage", h)
+        self.assertIn("#seated[hidden],#sessions[hidden]{display:none!important}", h,
+                      "a hidden panel must not be re-shown by a display rule")
+
     def test_the_endpoints_the_page_calls_are_served(self):
         h = self.page()
         called = set(re.findall(r'"(/api/[a-z_]+)"', h))

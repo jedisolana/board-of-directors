@@ -26,6 +26,8 @@ First release.
 - The cost of the next turn is shown before you send it.
 - Live free-model list, sortable by coding or thinking benchmark, with the models that are
   free-priced but not board material filtered out.
+- The board and saved-sessions panels fold away, so the model list can take the whole pane
+  while you browse. The fold is remembered.
 
 ### Reading code
 - Point it at a folder; it packs the files into one message and asks one model or the board.
