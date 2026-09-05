@@ -63,6 +63,13 @@ First release.
 - Routers (`openrouter/*`) can never hold a seat: two of them can pick the same underlying
   model and one-seat-per-family would guarantee nothing.
 
+### Locking spending off
+- A `$0.00` cap makes spending **impossible**, not merely unselected — it overrules the paid
+  toggle and any saved board, because someone who locked spending has said so about their
+  money, not about a checkbox.
+- For anyone who bought the $10 purely for the 20× rate limit: the balance is a key, not a
+  wallet, and the header says so.
+
 ### Honest metering
 - Optional **management key** makes the request meter exact, reading OpenRouter's own
   analytics instead of counting locally. Opt-in, stored separately, and only ever sent to the

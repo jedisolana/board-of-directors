@@ -234,6 +234,7 @@
     <div class="sorts" style="padding-top:0">
       <button class="sort on" id="fFree">free only</button>
       <button class="sort" id="fPaid">include paid</button>
+      <button class="sort" id="fLock" title="make spending impossible, not merely unselected">🔒</button>
     </div>
     <div class="models" id="models"></div>
     <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
@@ -429,7 +430,14 @@ function paintHeader(){
     bal.style.color = cr.balance > 0 ? "var(--good)" : "var(--dimmer)";
     bal.title = `$${cr.purchased.toFixed(2)} purchased, $${cr.used.toFixed(2)} used. `
       + (cr.purchased >= 10 ? "Above the $10 all-time threshold, so free models get 1000/day."
-                            : "Under $10 all-time, so free models get 50/day.");
+                            : "Under $10 all-time, so free models get 50/day.")
+      + (S.locked_to_free
+          ? " Spending is LOCKED OFF — this balance is buying the rate limit, not models."
+          : "");
+    if(S.locked_to_free){
+      bal.textContent = "$" + cr.balance.toFixed(2) + " 🔒";
+      bal.style.color = "var(--dim)";
+    }
   }
   const busy = u.provider_busy || 0;
   $("#hBusy").textContent = busy ? `${busy}` : "-";
@@ -525,10 +533,42 @@ function paintModels(){
 function paint(){ paintHeader(); paintModels(); paintPaidToggle(); }
 
 function paintPaidToggle(){
-  const on = !!(S && S.allow_paid);
+  const locked = !!(S && S.locked_to_free);
+  const on = !!(S && S.allow_paid) && !locked;
   $("#fFree").classList.toggle("on", !on);
   $("#fPaid").classList.toggle("on", on);
+  $("#fPaid").disabled = locked;
+  $("#fPaid").style.opacity = locked ? .4 : 1;
+  $("#fLock").classList.toggle("on", locked);
+  $("#fLock").textContent = locked ? "🔒 locked" : "🔓";
+  $("#fLock").title = locked
+    ? "Spending is impossible: cap is $0.00. Your balance still buys the higher free rate "
+      + "limit. Click to unlock."
+    : "Lock spending off entirely — the balance keeps buying the higher rate limit without "
+      + "ever being spent.";
 }
+
+// Plenty of people buy the $10 for the rate limit alone and never mean to spend it. For them
+// the balance is a key, not a wallet, and "paid is merely switched off" is one stray click
+// away from being wrong.
+async function setLock(on){
+  if(on){
+    S = await api("/api/paid", {on:false, cap:0});
+    note("Spending locked off", "Nothing that costs money can run now — not by toggle, not "
+       + "by a saved board. Your balance still buys the higher free rate limit; it just "
+       + "never gets spent.", "warn");
+  } else {
+    const cap = prompt("Unlock spending. Maximum cost for ONE session, in dollars:", "0.25");
+    if(cap === null) return;
+    const n = parseFloat(cap);
+    if(!(n > 0)) return note("Still locked", "A cap of zero means spending stays off.", "warn");
+    S = await api("/api/paid", {cap:n});
+    note("Spending unlocked", `Sessions may now cost up to <b>$${n.toFixed(2)}</b>. `
+       + `Paid models are still off until you turn them on.`, "warn");
+  }
+  paint();
+}
+$("#fLock").onclick = () => setLock(!(S && S.locked_to_free));
 
 // The estimate is shown BEFORE the send, never reported after it. A cost you learn afterwards
 // is a bill, not a decision.

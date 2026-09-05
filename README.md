@@ -238,6 +238,18 @@ consented to.
 **The cap is a wall.** Over it, the send is refused with the figure and the cap, not a warning
 you can click through.
 
+### If you bought the $10 only for the rate limit
+
+Plenty of people will. It moves free models from 50 to 1000 requests a day and is never meant
+to be spent — the balance is a **key, not a wallet**.
+
+For that, "paid is switched off" is one stray click away from being wrong. So there's a
+**lock**: set the cap to `$0.00` and nothing that costs money can run at all — not by toggle,
+not by a saved board that had paid models in it, not by anything the interface can do. The
+server refuses before it seats. The balance sits there doing its only job.
+
+The header shows it: `$10.00 🔒`.
+
 Your **balance** is in the header, read from OpenRouter with your ordinary key. "About $0.03"
 means something different at $10 than at $0.
 

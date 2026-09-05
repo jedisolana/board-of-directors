@@ -128,6 +128,7 @@ def _state() -> dict:
         "allow_paid": paid_on,
         "credits": _credits(),
         "spend_cap": config.spend_cap(),
+        "locked_to_free": cost.locked_to_free(config.spend_cap()),
         "models": [{**m, "json": catalogue.speaks_json(m),
                     "seatable": any(x["id"] == m["id"] for x in seatable)}
                    for m in models
@@ -199,6 +200,11 @@ def _paid_ok(payload: dict) -> bool:
     week must not be what decides that today's question costs money, so the browser has to ask
     for it every time and the server has to have been told it is allowed at all.
     """
+    # A zero cap overrules everything, including the toggle. Someone who has locked spending
+    # off has said so about their MONEY, not about a checkbox, and a UI state must not be
+    # able to override that.
+    if cost.locked_to_free(config.spend_cap()):
+        return False
     return bool(config.allow_paid()) and bool(payload.get("allow_paid"))
 
 
@@ -216,8 +222,13 @@ def _board(payload: dict, on_event=None) -> dict:
         blocked = [m["id"] for m in members if not m.get("free")]
         members = [m for m in members if m.get("free")]
         if blocked:
-            return {"error": "paid seats are not allowed on this send: "
-                             + ", ".join(blocked) + ". Turn on paid models to include them."}
+            # Say WHY, precisely. "Turn on paid models" is wrong and confusing when they are
+            # already on and a zero cap is what actually refused.
+            why = ("spending is locked off (cap $0.00) — your balance still buys the higher "
+                   "free rate limit" if cost.locked_to_free(config.spend_cap())
+                   else "turn on paid models to include them")
+            return {"error": "paid seats not allowed on this send: "
+                             + ", ".join(blocked) + f". {why}."}
     if not members:
         members = seats.seat(models, size=int(payload.get("size", 5)), allow_paid=paid_ok)
     try:
@@ -237,6 +248,10 @@ def _board(payload: dict, on_event=None) -> dict:
         return {"error": f"cannot price this board: {e}"}
     cap = config.spend_cap()
     if cost.over_cap(est, cap):
+        if cost.locked_to_free(cap):
+            return {"error": "spending is locked off — this board would cost "
+                             f"{est.human()}. Your balance still buys the higher free "
+                             "rate limit; unlock spending only if you want to use it."}
         return {"error": f"this session would cost {est.human()}, over your "
                          f"${cap:,.2f} cap. Raise the cap or seat cheaper models."}
 

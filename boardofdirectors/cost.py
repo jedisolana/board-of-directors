@@ -84,5 +84,17 @@ def session(members: list[dict], chair: dict | None = None, *, peer_review: bool
 
 
 def over_cap(estimate: Estimate, cap_usd: float | None) -> bool:
-    """A cap is a wall, not a warning. None means no cap set."""
+    """A cap is a wall, not a warning. None means no cap set.
+
+    A cap of ZERO is the important case, and it is not a degenerate one. Plenty of people buy
+    the $10 for the rate limit alone -- it moves free models from 50 to 1000 requests a day
+    and is never meant to be spent. For them the balance is a key, not a wallet, and "paid is
+    merely switched off" is one stray click away from being wrong. A zero cap makes it
+    impossible rather than merely unselected.
+    """
     return cap_usd is not None and estimate.usd > cap_usd
+
+
+def locked_to_free(cap_usd: float | None) -> bool:
+    """True when nothing costing money can run at all."""
+    return cap_usd is not None and cap_usd <= 0

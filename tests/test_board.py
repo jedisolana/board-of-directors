@@ -671,6 +671,27 @@ class PaidSeats(unittest.TestCase):
         one_member = (with_chair.usd - without.usd)
         self.assertGreater(one_member, without.usd / len(members))
 
+    def test_a_zero_cap_makes_spending_impossible_not_merely_unselected(self):
+        """Plenty of people buy the $10 for the rate limit alone.
+
+        It moves free models from 50 to 1000 requests a day and is never meant to be spent -
+        the balance is a key, not a wallet. For them "paid is switched off" is one stray click
+        from being wrong, so a zero cap has to be a lock rather than a preference.
+        """
+        e = cost.session([paidmodel("zeta/pricey:x", 10.0, 30.0)])
+        self.assertTrue(cost.locked_to_free(0))
+        self.assertTrue(cost.locked_to_free(0.0))
+        self.assertTrue(cost.over_cap(e, 0))
+        self.assertFalse(cost.locked_to_free(0.01))
+        self.assertFalse(cost.locked_to_free(None), "no cap set is not the same as a zero cap")
+
+    def test_a_free_board_still_runs_under_a_zero_cap(self):
+        """The lock stops spending, not the program."""
+        b = seats.seat(self.POOLP, size=4)
+        e = cost.session(b, seats.chair(self.POOLP, b))
+        self.assertEqual(e.usd, 0.0)
+        self.assertFalse(cost.over_cap(e, 0))
+
     def test_a_cap_is_a_wall(self):
         e = cost.session([paidmodel("zeta/pricey:x", 10.0, 30.0)] * 3)
         self.assertTrue(cost.over_cap(e, 0.01))
