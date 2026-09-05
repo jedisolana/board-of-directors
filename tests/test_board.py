@@ -20,6 +20,12 @@ import time
 import typing
 import unittest
 
+# ----------------------------------------------------------------------------- no network
+# The suite makes no network calls - the CI comment says so, and one test quietly made four
+# real requests to OpenRouter with a fake key for months. This makes the promise mechanical:
+# any urlopen to a host that is not loopback raises. A test that needs the wire has a bug.
+import urllib.request as _ur
+
 from boardofdirectors import (
     atomic,
     board,
@@ -39,6 +45,18 @@ from boardofdirectors import (
     usage,
 )
 from boardofdirectors.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
+
+_real_urlopen = _ur.urlopen
+
+
+def _no_network(url, *a, **k):
+    full = url.full_url if hasattr(url, "full_url") else str(url)
+    if "://127.0.0.1" in full or "://localhost" in full or "://[::1]" in full:
+        return _real_urlopen(url, *a, **k)
+    raise OSError(f"the test suite is offline: refused {full}")
+
+
+_ur.urlopen = _no_network
 
 
 def model(mid, ctx=100000, out=8000, params=("max_tokens", "temperature"), mods=("text",),
@@ -62,6 +80,17 @@ POOL = [
     model("delta/one:free", ctx=50000, out=2000),
     model("epsilon/one:free", ctx=400000),
 ]
+
+
+
+def symlink_or_skip(test, target, link):
+    """Windows needs a privilege for symlinks that CI runners do not have. The feature under
+    test is the guard against following one - if the OS cannot make one, there is nothing to
+    guard, and an OSError here is not a failure of ours."""
+    try:
+        os.symlink(target, link)
+    except (OSError, NotImplementedError) as e:
+        test.skipTest(f"symlinks unavailable here: {e}")
 
 
 class Seating(unittest.TestCase):
@@ -1034,7 +1063,9 @@ class TheOutputCap(unittest.TestCase):
         small = {"id": "a/small", "max_completion_tokens": 8192, "supported_parameters": ["max_tokens"]}
         for m, expected in ((big, 32768), (small, 8192)):
             sent = {}
-            t = OpenRouterTransport("sk-or-v1-" + "a" * 64, meter=False)
+            # No sleeping between retries and no wire: this asserts what would be SENT, and
+            # the unpatched version made four real requests to OpenRouter with a fake key.
+            t = OpenRouterTransport("sk-or-v1-" + "a" * 64, meter=False, sleep=lambda _s: None)
             orig = OpenRouterTransport._payload
 
             def spy(model, messages, want_json, max_tokens, temperature, _s=sent, _o=orig):
@@ -1927,7 +1958,7 @@ class Symlinks(unittest.TestCase):
             f.write("AWS_SECRET=hunter2\n")
 
     def link(self, name, target):
-        os.symlink(target, os.path.join(self.proj, name))
+        symlink_or_skip(self, target, os.path.join(self.proj, name))
 
     def test_a_link_out_of_the_folder_is_never_read(self):
         self.link("config.py", os.path.join(self.out, "creds.env"))
@@ -1952,7 +1983,7 @@ class Symlinks(unittest.TestCase):
         self.assertTrue(codebase.inside("/tmp", "/tmp"))
 
     def test_a_symlinked_folder_is_reported_not_silently_dropped(self):
-        os.symlink(self.out, os.path.join(self.proj, "shared"))
+        symlink_or_skip(self, self.out, os.path.join(self.proj, "shared"))
         s = codebase.scan(self.proj)
         self.assertIn("shared", [rel for rel, _ in s.skipped])
         self.assertNotIn("hunter2", "".join(f.text for f in s.files))
@@ -2212,7 +2243,7 @@ class TheOnlyPlaceThatWrites(unittest.TestCase):
             self.assertEqual(f.read(), "original\n", "a file outside the folder was written")
 
     def test_a_symlink_out_of_the_folder_is_not_a_way_in(self):
-        os.symlink(self.victim, os.path.join(self.proj, "link.py"))
+        symlink_or_skip(self, self.victim, os.path.join(self.proj, "link.py"))
         r = self.apply("link.py")
         self.assertIn("error", r)
         with open(self.victim, encoding="utf-8") as f:
@@ -2433,7 +2464,8 @@ class TheDocumentationRuns(unittest.TestCase):
                 if "OpenAI(" in b:            # the external-client example needs a console
                     continue
                 if "~/Desktop/myproject" in b:  # the reader's folder, not ours
-                    b = b.replace("~/Desktop/myproject", home)
+                    # as a LITERAL: a Windows temp path pasted raw into source turns \t into a tab
+                    b = b.replace('"~/Desktop/myproject"', repr(home))
                 with self.subTest(block=i, first_line=b.strip().splitlines()[0][:60]):
                     exec(compile(b, f"docs-example-{i}", "exec"), ns)
 
@@ -2613,6 +2645,66 @@ class SendAnywayMeansIt(unittest.TestCase):
         s = recipes.audit(self.folder, send_anyway=True, transport=OfflineTransport(),
                           models=POOL, live_catalogue=False)
         self.assertTrue(s.answers)
+
+
+class BareBoardMeansShowMeTheConsole(unittest.TestCase):
+    """Typing `board` with the console already up printed three lines about ports. The person
+    typing it has usually just forgotten it is running; they want the tab, not the lecture."""
+
+    def test_an_already_running_console_is_opened_not_described(self):
+        srv = server._Server(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = server.serve(srv.server_address[1], open_browser=False)
+        self.assertEqual(rc, 0)
+        self.assertIn("already running", out.getvalue())
+
+    def test_a_stranger_on_the_port_is_still_reported(self):
+        import socket
+        other = socket.socket()
+        other.bind(("127.0.0.1", 0))
+        other.listen(1)
+        self.addCleanup(other.close)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            rc = server.serve(other.getsockname()[1], open_browser=False)
+        self.assertEqual(rc, 1)
+        self.assertIn("Something else", out.getvalue())
+
+
+class ACutOffQuestionIsACancel(unittest.TestCase):
+    """`board pick` and `board setup` ask questions. With stdin closed - a script, a pipe, a
+    cron job - or on Ctrl-D, input() raises EOFError, and the person got a traceback for
+    declining to answer."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old
+        importlib.reload(config)
+
+    def test_eof_and_ctrl_c_end_quietly(self):
+        from unittest import mock
+
+        from boardofdirectors import cli
+        for cmd, exc in (("pick", EOFError), ("setup", KeyboardInterrupt), ("pick", KeyboardInterrupt)):
+            with self.subTest(cmd=cmd, exc=exc.__name__):
+                with mock.patch("builtins.input", side_effect=exc), \
+                        mock.patch("getpass.getpass", side_effect=exc), \
+                        contextlib.redirect_stdout(io.StringIO()) as out:
+                    rc = cli.main(["--offline", cmd])
+                self.assertEqual(rc, 130)
+                self.assertIn("cancelled", out.getvalue())
+                self.assertNotIn("Traceback", out.getvalue())
 
 
 if __name__ == "__main__":

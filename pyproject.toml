@@ -18,6 +18,12 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/jedisolana/board-of-directors"
+Repository = "https://github.com/jedisolana/board-of-directors"
+Issues = "https://github.com/jedisolana/board-of-directors/issues"
+Changelog = "https://github.com/jedisolana/board-of-directors/blob/main/CHANGELOG.md"
+
 [project.scripts]
 board = "boardofdirectors.cli:main"
 board-of-directors = "boardofdirectors.cli:main"

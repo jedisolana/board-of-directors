@@ -322,9 +322,20 @@ def main(argv: list[str] | None = None) -> int:
     r.set_defaults(fn=cmd_refresh)
 
     args = p.parse_args(argv)
-    if not args.cmd:                      # bare `board` -> open the console
-        return server.serve()
-    rc = args.fn(args)
+    try:
+        if not args.cmd:                  # bare `board` -> open the console
+            return server.serve()
+        rc = args.fn(args)
+    except (EOFError, KeyboardInterrupt):
+        # `setup` and `pick` ask questions. Ctrl-C, Ctrl-D, or a closed stdin (a script, a
+        # cron job, a pipe) all arrive here, and every one of them means the same thing:
+        # the person is not answering. That is a cancel, not a crash with a traceback.
+        print("\n  cancelled - nothing was changed")
+        return 130
+    return _nudge(args, rc)
+
+
+def _nudge(args, rc: int) -> int:
     if args.cmd == "status":              # a nudge toward whatever is still missing
         if not config.api_key()[0]:
             print("  start here:  board setup   (or just `board` for the console)\n")

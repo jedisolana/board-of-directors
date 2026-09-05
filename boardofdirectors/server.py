@@ -663,6 +663,17 @@ class _Server(socketserver.ThreadingTCPServer):
         super().handle_error(request, client_address)
 
 
+def _is_ours(port: int) -> bool:
+    """Is the thing on this port a Board of Directors console? Asks it, briefly."""
+    import json as _json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=2) as r:
+            return "build" in _json.load(r)
+    except Exception:
+        return False
+
+
 def _in_use(port: int) -> bool:
     import socket
     with socket.socket() as s:
@@ -679,9 +690,16 @@ def serve(port: int = 8420, open_browser: bool = True) -> int:
     """
     url = f"http://127.0.0.1:{port}/"
     if _in_use(port):
-        print(f"\n  Something is already listening on port {port}.")
-        print(f"  If it is the console, it is already running: {url}")
-        print(f"  Otherwise start this one somewhere else:  board ui --port {port + 1}\n")
+        if _is_ours(port):
+            # `board` means "put the console in front of me". If it is already up, that is a
+            # browser tab, not a lecture about ports - the person typing this has usually just
+            # forgotten it is running, which is the normal state of a thing that works.
+            print(f"\n  The console is already running: {url}")
+            if open_browser:
+                webbrowser.open(url)
+            return 0
+        print(f"\n  Something else is listening on port {port}.")
+        print(f"  Start the console somewhere else:  board ui --port {port + 1}\n")
         return 1
 
     _models()

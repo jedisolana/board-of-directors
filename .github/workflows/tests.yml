@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  # Windows runners decode stdout as cp1252 unless told otherwise, and the board's report
+  # prints an em dash. Without this the first unicode character is a UnicodeEncodeError.
+  PYTHONUTF8: "1"
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}

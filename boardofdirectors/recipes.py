@@ -51,6 +51,8 @@ def brainstorm(topic: str, *, ideas: int = 5, size: int = 6, **kw) -> board.Sess
     data, and the chair's `decision` is the list the blind ranking put on top. Read all of
     `session.answers` -- the second-best list usually has the idea the winner missed.
     """
+    if ideas < 1:
+        raise ValueError("brainstorm needs at least one idea per member")
     return board.ask(BRAINSTORM.format(n=ideas, topic=topic), kind="make", size=size, **kw)
 
 
@@ -193,6 +195,8 @@ def supply_chain(steps: list[str], material: str = "", *, transport: Transport |
     A station that fails stops the line -- the later steps had nothing to work from -- and
     `broke_at` names it. Nothing is glued together to look finished.
     """
+    if not steps:
+        raise ValueError("a supply chain needs at least one step")
     if not send_anyway:
         redact.check(material + "\n" + "\n".join(steps))
     if models is None:

@@ -1,5 +1,5 @@
 {
-  "captured": "2026-09-05T00:37:25Z",
+  "captured": "2026-09-05T14:58:58Z",
   "source": "https://openrouter.ai/api/v1/models",
   "total_models_seen": 431,
   "models": [
@@ -143,7 +143,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 23,
+        "coding": 23.0,
         "agentic": null
       }
     },
@@ -927,7 +927,7 @@
       ],
       "score": {
         "thinking": 54.1,
-        "coding": 78,
+        "coding": 78.0,
         "agentic": 56.4
       }
     },
@@ -960,7 +960,7 @@
       ],
       "score": {
         "thinking": 54.1,
-        "coding": 78,
+        "coding": 78.0,
         "agentic": 56.4
       }
     },
@@ -1098,7 +1098,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 63,
+        "coding": 63.0,
         "agentic": 33.3
       }
     },
@@ -1133,7 +1133,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 63,
+        "coding": 63.0,
         "agentic": 33.3
       }
     },
@@ -2042,8 +2042,8 @@
       "id": "deepseek/deepseek-v4-flash",
       "name": "DeepSeek: DeepSeek V4 Flash 0423",
       "free": false,
-      "price_in": 0.0872,
-      "price_out": 0.1744,
+      "price_in": 0.0847,
+      "price_out": 0.1694,
       "family": "deepseek",
       "context_length": 1048576,
       "max_completion_tokens": 384000,
@@ -2208,8 +2208,8 @@
       "id": "deepseek/deepseek-v4-pro",
       "name": "DeepSeek: DeepSeek V4 Pro 0423",
       "free": false,
-      "price_in": 0.9817,
-      "price_out": 1.9634,
+      "price_in": 0.8599,
+      "price_out": 1.7198,
       "family": "deepseek",
       "context_length": 1048576,
       "max_completion_tokens": 384000,
@@ -3044,8 +3044,8 @@
         "top_p"
       ],
       "score": {
-        "thinking": null,
-        "coding": 68.7,
+        "thinking": 36.7,
+        "coding": 68.8,
         "agentic": 10.4
       }
     },
@@ -3117,8 +3117,8 @@
         "top_p"
       ],
       "score": {
-        "thinking": null,
-        "coding": 68.7,
+        "thinking": 36.7,
+        "coding": 68.8,
         "agentic": 10.4
       }
     },
@@ -5300,7 +5300,7 @@
       "score": {
         "thinking": 35.7,
         "coding": 58.6,
-        "agentic": 31
+        "agentic": 31.0
       }
     },
     {
@@ -5339,7 +5339,7 @@
       "score": {
         "thinking": 35.7,
         "coding": 58.6,
-        "agentic": 31
+        "agentic": 31.0
       }
     },
     {
@@ -5371,7 +5371,7 @@
       "score": {
         "thinking": 35.7,
         "coding": 58.6,
-        "agentic": 31
+        "agentic": 31.0
       }
     },
     {
@@ -5635,8 +5635,8 @@
         "top_p"
       ],
       "score": {
-        "thinking": null,
-        "coding": 20.2,
+        "thinking": 11.1,
+        "coding": 20.1,
         "agentic": 2.5
       }
     },
@@ -6165,7 +6165,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 21,
+        "coding": 21.0,
         "agentic": null
       }
     },
@@ -11104,7 +11104,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 9,
+        "coding": 9.0,
         "agentic": null
       }
     },
@@ -11825,7 +11825,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 37,
+        "coding": 37.0,
         "agentic": null
       }
     },
@@ -12334,7 +12334,7 @@
       ],
       "score": {
         "thinking": null,
-        "coding": 66,
+        "coding": 66.0,
         "agentic": 23.9
       }
     },
@@ -12495,7 +12495,7 @@
         "top_p"
       ],
       "score": {
-        "thinking": 41.6,
+        "thinking": 41.4,
         "coding": 68.1,
         "agentic": 46.8
       }
@@ -12540,8 +12540,8 @@
       }
     },
     {
-      "id": "qwen/qwen3.8-max",
-      "name": "Qwen: Qwen3.8 Max",
+      "id": "qwen/qwen3.8-max-0902",
+      "name": "Qwen: Qwen3.8 Max (0902)",
       "free": false,
       "price_in": 2.0,
       "price_out": 6.0,
@@ -12574,8 +12574,8 @@
         "top_p"
       ],
       "score": {
-        "thinking": 53.4,
-        "coding": 68.9,
+        "thinking": 46.9,
+        "coding": 71.8,
         "agentic": 49.9
       }
     },
@@ -14805,8 +14805,8 @@
       "id": "~moonshotai/kimi-latest",
       "name": "MoonshotAI Kimi Latest",
       "free": false,
-      "price_in": 2.5,
-      "price_out": 14.0,
+      "price_in": 2.55,
+      "price_out": 12.75,
       "family": "~moonshotai",
       "context_length": 1048576,
       "max_completion_tokens": 943718,
