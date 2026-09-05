@@ -318,3 +318,15 @@ print(sessions.as_markdown(sessions.load(sid)))   # minutes, with the dissent in
 it inside the repo. Override with `BOARD_HOME`, which also disables the migration from an
 earlier install: setting it is a request for *that* directory, not an invitation to import
 someone else's state.
+
+## Where it looks for projects
+
+The **audit code** panel offers folders it finds under `~/Desktop`, `~/Documents` and `~`.
+Override with `BOARD_PROJECT_ROOTS`, colon-separated:
+
+```bash
+BOARD_PROJECT_ROOTS=~/src:~/work board
+```
+
+Useful if your code lives elsewhere — and the only way to screenshot that panel without
+publishing a list of somebody's private work, which is how it came to exist.

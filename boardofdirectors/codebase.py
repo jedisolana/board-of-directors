@@ -176,13 +176,25 @@ def audit_message(scan_result: Scan, budget_tokens: int | None = None, ask: str 
     return AUDIT.format(code=body)
 
 
+# Where to look for projects. Overridable, because the default is somebody's actual home
+# directory - useful for anyone who keeps code elsewhere, and the only way to take a
+# screenshot of this panel that is not a list of the author's private work.
+ROOTS_ENV = "BOARD_PROJECT_ROOTS"
+DEFAULT_ROOTS = ("~/Desktop", "~/Documents", "~")
+
+
+def project_roots() -> list[str]:
+    override = os.environ.get(ROOTS_ENV)
+    roots = override.split(os.pathsep) if override else DEFAULT_ROOTS
+    return [os.path.expanduser(r) for r in roots if r.strip()]
+
+
 def suggest(limit: int = 30) -> list[dict]:
     """Folders that look like projects, to offer as buttons instead of a path to type."""
     marks = {".git", "package.json", "pyproject.toml", "Cargo.toml", "go.mod",
              "requirements.txt", "setup.py", "Gemfile", "pom.xml", "build.gradle"}
     out = []
-    for base in (os.path.expanduser("~/Desktop"), os.path.expanduser("~/Documents"),
-                 os.path.expanduser("~")):
+    for base in project_roots():
         if not os.path.isdir(base):
             continue
         try:
