@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Restamp the commit that just landed to +0900, keeping the exact instant.
+#
+# Git takes the timezone from the machine at commit time and there is no config for it, so
+# the offset is the one piece of metadata that quietly reports roughly where you are. Only
+# the offset changes here: the epoch is preserved byte for byte, so nothing is backdated and
+# history stays in order.
+#
+# `git commit --amend` PRESERVES the original author date and ignores GIT_AUTHOR_DATE, which
+# is why the obvious version of this silently half-worked - the committer stamp moved and the
+# author stamp did not. It needs --date.
+#
+# Install:   git config core.hooksPath .githooks
+# Skip once: BOARD_NO_TZ=1 git commit ...
+set -e
+
+ZONE_HOURS=9
+[ -n "$BOARD_NO_TZ" ] && exit 0
+[ -n "$BOARD_TZ_FIXING" ] && exit 0        # the amend re-fires this hook
+
+# Never amend a commit git is still holding a reference to.
+GITDIR="$(git rev-parse --git-dir)"
+for marker in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+  [ -e "$GITDIR/$marker" ] && exit 0
+done
+
+ZONE=$(printf '%+03d00' "$ZONE_HOURS")
+[ "$(git log -1 --format=%ai | awk '{print $3}')" = "$ZONE" ] && exit 0
+
+ISO=$(python3 -c "
+import datetime, sys
+tz = datetime.timezone(datetime.timedelta(hours=$ZONE_HOURS))
+print(datetime.datetime.fromtimestamp(int(sys.argv[1]), tz).strftime('%Y-%m-%dT%H:%M:%S%z'))
+" "$(git log -1 --format=%at)") || exit 0
+
+BOARD_TZ_FIXING=1 GIT_COMMITTER_DATE="$ISO" \
+  git commit --amend --no-edit --no-verify --quiet --date="$ISO"

@@ -382,6 +382,10 @@ git config core.hooksPath .githooks    # once, after cloning
 
 Git does not run hooks from a fetched repo, by design — so it is off until you turn it on.
 
+There is a `post-commit` hook alongside it that stamps every commit `+0900`, keeping the exact
+instant and changing only the offset. Delete it if you would rather your commits say where you
+are; it is a preference, not part of the program.
+
 ## Tests
 
 ```bash
