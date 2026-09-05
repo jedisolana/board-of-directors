@@ -581,10 +581,15 @@ class WatchingItHappen(unittest.TestCase):
             self.assertNotIn("VOTE:", a["text"], "the marker belongs in the badge, not the prose")
 
     def test_a_member_that_fails_is_announced_too(self):
-        evs = self._events(size=4, t={"fail": {POOL[0]["id"]}})
+        # Fail a model that is ACTUALLY SEATED. The first version failed POOL[0], which the
+        # ranking never seats - so nothing failed, and the test was asserting against a
+        # session it had not changed.
+        seated = seats.seat(POOL, size=4)[0]["id"]
+        evs = self._events(size=4, t={"fail": {seated}})
         fails = [e for e in evs if e["type"] == "failure"]
         self.assertEqual(len(fails), 1)
-        self.assertEqual(fails[0]["model"], POOL[0]["id"])
+        self.assertEqual(fails[0]["model"], seated)
+        self.assertNotIn(seated, [e["model"] for e in evs if e["type"] == "answer"])
 
     def test_a_broken_listener_cannot_fail_the_session(self):
         """A display must never be able to take the board down with it."""

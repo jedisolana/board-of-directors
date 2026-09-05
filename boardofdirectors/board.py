@@ -20,6 +20,7 @@ NO QUORUM rather than a confident-looking answer from whoever got through.
 """
 from __future__ import annotations
 
+import contextlib
 import re
 import string
 from dataclasses import dataclass, field
@@ -243,10 +244,8 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     # exception in it is swallowed, because a display must never be able to fail a session.
     def emit(**ev):
         if on_event:
-            try:
+            with contextlib.suppress(Exception):
                 on_event(ev)
-            except Exception:
-                pass
 
     emit(type="seated", members=[m["id"] for m in members], chair=chair_model["id"], kind=kind)
 
