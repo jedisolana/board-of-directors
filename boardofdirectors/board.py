@@ -197,18 +197,18 @@ def _blind(answers: list[Answer]) -> tuple[str, dict[str, str]]:
 
 def ask(question: str, *, transport: Transport | None = None, models: list[dict] | None = None,
         size: int = 5, minimum: int = 3, peer_review: bool = True,
-        live_catalogue: bool = True, kind: str = "decide") -> Session:
+        live_catalogue: bool = True, kind: str = "decide", on_event=None) -> Session:
     """Run one board session. Raises `redact.Refused` before anything leaves the machine."""
     return ask_in_context(question, prior=None, transport=transport, models=models, size=size,
                           minimum=minimum, peer_review=peer_review,
-                          live_catalogue=live_catalogue, kind=kind)
+                          live_catalogue=live_catalogue, kind=kind, on_event=on_event)
 
 
 def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    transport: Transport | None = None, models: list[dict] | None = None,
                    size: int = 5, minimum: int = 3, peer_review: bool = True,
                    live_catalogue: bool = True, kind: str = "decide",
-                   members: list[dict] | None = None) -> Session:
+                   members: list[dict] | None = None, on_event=None) -> Session:
     """A board session that picks up an existing conversation.
 
     This is what makes the mode switch worth having. You talk to ONE model for a while at one
@@ -237,21 +237,42 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     chair_model = seats.chair(models, members)
     s = Session(question=question, members=members, chair_model=chair_model, kind=kind)
 
+    # A board session takes a minute. Reporting nothing until it is over turns deliberation
+    # into a spinner, and hides the one thing worth watching: members disagreeing one at a
+    # time. `on_event` is fired as each thing actually happens; it is optional and any
+    # exception in it is swallowed, because a display must never be able to fail a session.
+    def emit(**ev):
+        if on_event:
+            try:
+                on_event(ev)
+            except Exception:
+                pass
+
+    emit(type="seated", members=[m["id"] for m in members], chair=chair_model["id"], kind=kind)
+
     # 1. independent answers -- each member reads the thread so far, then answers alone
     make = (kind == "make")
     prompt = (MAKE_PROMPT if make else ANSWER_PROMPT).format(q=question)
     for m in members:
+        emit(type="asking", model=m["id"])
         r = transport.ask(m, [*prior, {"role": "user", "content": prompt}])
         (s.answers if r.ok else s.failures).append(r)
+        if r.ok:
+            emit(type="answer", model=r.model, vote=read_vote(r.text), text=strip_vote(r.text))
+        else:
+            emit(type="failure", model=r.model, reason=r.reason)
 
     # A board is the members who actually spoke. Silence is not consent.
+    emit(type="tally", tally=tally(s.answers))
     if len(s.answers) < minimum:
         s.no_quorum = (f"only {len(s.answers)} of {len(members)} member(s) answered "
                        f"({len(s.failures)} failed); {minimum} needed. "
                        f"A missing member is not a vote either way.")
+        emit(type="no_quorum", reason=s.no_quorum)
         return s
 
     blind_text, s.labels = _blind(s.answers)
+    emit(type="labels", labels=s.labels)
 
     # 2. blind peer ranking
     if peer_review and len(s.answers) > 1:
@@ -259,9 +280,11 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
         for m in members:
             if not any(a.model == m["id"] for a in s.answers):
                 continue          # a member who did not answer does not get to rank
+            emit(type="ranking", model=m["id"])
             r = transport.ask(m, [*prior, {"role": "user", "content": rp}])
             if r.ok:
                 s.rankings.append(r)
+                emit(type="ranked", model=m["id"])
 
     # 3. the chair
     ranked = "\n\n".join(f"--- ranking by a member ---\n{r.text}" for r in s.rankings) or "(none)"
@@ -272,12 +295,14 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     cp = (MAKE_CHAIR_PROMPT.format(q=question, answers=blind_text, rankings=ranked) if make
           else CHAIR_PROMPT.format(q=question, answers=blind_text, rankings=ranked,
                                    tally=tally_line))
+    emit(type="chairing", model=chair_model["id"])
     tried, reason = [], ""
     while True:
         r = transport.ask(chair_model, [*prior, {"role": "user", "content": cp}])
         if r.ok:
             s.decision = r.text
             s.chair_model = chair_model
+            emit(type="decision", text=r.text, chair=chair_model["id"])
             return s
         # The members have already spoken and their answers are worth keeping. Throwing the
         # whole session away because one model refused to chair it is the same mistake as
@@ -285,12 +310,15 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
         tried.append(chair_model["id"])
         reason = r.reason
         s.chair_failures.append({"model": chair_model["id"], "reason": r.reason})
+        emit(type="chair_failed", model=chair_model["id"], reason=r.reason)
         try:
             chair_model = seats.chair(models, members, exclude=set(tried))
+            emit(type="chairing", model=chair_model["id"])
         except seats.NoQuorum:
             s.no_quorum = (f"{len(s.answers)} member(s) answered, but no free model could "
                            f"chair the session (last: {reason}). Their answers are above; "
                            f"the synthesis is missing, not the board.")
+            emit(type="no_quorum", reason=s.no_quorum)
             return s
 
 

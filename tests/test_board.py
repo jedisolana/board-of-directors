@@ -555,6 +555,51 @@ class TheRename(unittest.TestCase):
             shutil.rmtree(new, ignore_errors=True)
 
 
+class WatchingItHappen(unittest.TestCase):
+    """A board session takes a minute. Reporting nothing until it is over turns deliberation
+    into a spinner and hides the one thing worth watching."""
+
+    def _events(self, **kw):
+        seen = []
+        board.ask("Ship it?", transport=OfflineTransport(**kw.pop("t", {})),
+                  models=POOL, on_event=seen.append, **kw)
+        return seen
+
+    def test_every_stage_is_announced_in_order(self):
+        kinds = [e["type"] for e in self._events(size=4)]
+        self.assertEqual(kinds[0], "seated")
+        self.assertLess(kinds.index("asking"), kinds.index("answer"))
+        self.assertLess(kinds.index("answer"), kinds.index("tally"))
+        self.assertLess(kinds.index("tally"), kinds.index("chairing"))
+        self.assertEqual(kinds[-1], "decision")
+
+    def test_each_answer_carries_its_vote_as_it_lands(self):
+        answers = [e for e in self._events(size=4) if e["type"] == "answer"]
+        self.assertTrue(answers)
+        for a in answers:
+            self.assertIn(a["vote"], board.VOTES)
+            self.assertNotIn("VOTE:", a["text"], "the marker belongs in the badge, not the prose")
+
+    def test_a_member_that_fails_is_announced_too(self):
+        evs = self._events(size=4, t={"fail": {POOL[0]["id"]}})
+        fails = [e for e in evs if e["type"] == "failure"]
+        self.assertEqual(len(fails), 1)
+        self.assertEqual(fails[0]["model"], POOL[0]["id"])
+
+    def test_a_broken_listener_cannot_fail_the_session(self):
+        """A display must never be able to take the board down with it."""
+        def explode(_ev):
+            raise RuntimeError("the browser went away")
+        s = board.ask("Ship it?", transport=OfflineTransport(), models=POOL,
+                      size=4, on_event=explode)
+        self.assertIsNotNone(s.decision)
+        self.assertEqual(len(s.answers), 4)
+
+    def test_no_listener_at_all_is_fine(self):
+        s = board.ask("Ship it?", transport=OfflineTransport(), models=POOL, size=4)
+        self.assertIsNotNone(s.decision)
+
+
 class TheVote(unittest.TestCase):
     """A board that cannot show its own vote is a discussion.
 

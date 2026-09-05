@@ -40,6 +40,11 @@ First release.
 - Models the catalogue calls free but the API refuses are remembered and not picked again.
 - The daily limit is account-wide: more models buys independence, not headroom. Said plainly.
 
+### Watching it happen
+- The board **streams**: seats fill one at a time, each taking the colour of the vote it
+  declared, with a live line saying who is being asked and what stage the session is at.
+- A broken display can never fail a session.
+
 ### The vote
 - Members declare **for / against / conditional**; the board counts it and shows one dot per
   seat, the totals, and whether the motion **carried**.
@@ -65,5 +70,5 @@ First release.
 - Renaming the project carries an existing install's key, tier and call count across.
 
 ### Under it
-- Standard library only. 97 tests, no network. Ruff clean. CI on Ubuntu and macOS across
+- Standard library only. 102 tests, no network. Ruff clean. CI on Ubuntu and macOS across
   Python 3.10, 3.12 and 3.13.

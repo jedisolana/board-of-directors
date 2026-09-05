@@ -160,7 +160,7 @@ def _single(payload: dict) -> dict:
     return {"mode": "single", "model": mid, "text": r.text, "calls": 1, "live": live}
 
 
-def _board(payload: dict) -> dict:
+def _board(payload: dict, on_event=None) -> dict:
     """The whole board, on this turn only, carrying the conversation so far."""
     models = _models()
     want = payload.get("board") or config.board() or []
@@ -188,7 +188,7 @@ def _board(payload: dict) -> dict:
     s = board.ask_in_context(question, prior=prior, transport=transport, models=models,
                              members=members, minimum=int(payload.get("minimum", 3)),
                              peer_review=bool(payload.get("peer_review", True)),
-                             kind=payload.get("kind", "decide"))
+                             kind=payload.get("kind", "decide"), on_event=on_event)
     return {
         "mode": "board", "live": live, "kind": s.kind,
         # the members the SESSION used, not the ones that were requested
@@ -204,6 +204,38 @@ def _board(payload: dict) -> dict:
         "rankings": len(s.rankings),
         "decision": s.decision, "no_quorum": s.no_quorum, "calls": s.requests,
     }
+
+
+def _stream_board(handler, payload: dict) -> None:
+    """Push each event down the wire the moment it happens.
+
+    Newline-delimited JSON rather than Server-Sent Events: the browser has to POST a whole
+    conversation to start this, and EventSource cannot POST. A plain chunked response read
+    with a stream reader does the same job without the workaround.
+    """
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/x-ndjson")
+    handler.send_header("X-Accel-Buffering", "no")
+    handler.end_headers()
+
+    def push(ev):
+        try:
+            handler.wfile.write((json.dumps(ev) + "\n").encode())
+            handler.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            raise                       # the tab closed; stop the session with it
+
+    try:
+        out = _board(payload, on_event=push)
+    except redact.Refused as e:
+        return push({"type": "refused", "findings": [str(f) for f in e.findings]})
+    except (BrokenPipeError, ConnectionResetError):
+        return
+    except Exception as e:
+        return push({"type": "error", "error": f"{type(e).__name__}: {e}"})
+    if out.get("error"):
+        return push({"type": "error", "error": out["error"]})
+    push({"type": "done", **out, "usage": _state()["usage"]})
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -319,6 +351,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._json(sc.summary())
             if self.path == "/api/guess":
                 return self._json({"task": board.looks_like_a_task(payload.get("q", ""))})
+            if self.path == "/api/chat/stream":
+                return _stream_board(self, payload)
             if self.path == "/api/chat":
                 out = _board(payload) if payload.get("mode") == "board" else _single(payload)
                 out["usage"] = _state()["usage"]

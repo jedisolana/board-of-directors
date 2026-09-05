@@ -102,9 +102,20 @@ remembered.
 
 ---
 
-## You can see the vote
+## You watch it happen
 
-![The vote](docs/fig-vote.png)
+![The board deliberating](docs/fig-room.png)
+
+The room fills as the board answers. Every member is a seat; the chair sits apart and does not
+vote. A seat pulses while that member is thinking, then takes the colour of the vote it
+declared — green **for**, red **against**, amber **conditional**, hatched if the model never
+answered at all.
+
+A board session takes about a minute. Reporting nothing until it is over turns deliberation
+into a spinner and hides the only part worth watching: members disagreeing, one at a time.
+Answers stream in as they land.
+
+## You can see the vote
 
 Every member declares a position — **for**, **against**, or **conditional** — on its own line,
 and the board counts them. One dot per seat, the count in words, and whether the motion
@@ -283,7 +294,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-97 tests, no network, no dependencies. Most of them are failure paths, because a board that
+102 tests, no network, no dependencies. Most of them are failure paths, because a board that
 works when every model answers is the easy half. They cover what happens when a member is
 throttled, when the seam sees a key, when the pool has no independent members left, when two
 consoles write the counter at once — and, after being caught by them the hard way, whether the
