@@ -2397,20 +2397,44 @@ class TheChairWalkIsBudgeted(unittest.TestCase):
 
 
 class CredentialsInsideAUrl(unittest.TestCase):
-    """`postgres://user:password@host/db` is how half the world writes its database
-    credentials into a config file, and the seam let it straight through to six companies."""
+    """A database URL with the password sitting inside it is how half the world writes
+    credentials into a config file, and the seam let that shape straight through to six
+    companies."""
 
     def hit(self, text):
         return any(f.rule == "url credentials" for f in redact.scan(text))
 
     def test_the_common_shapes_are_caught(self):
-        for t in ("postgres://user:s3cretpw@db.internal:5432/prod",
-                  "DATABASE_URL=mysql://root:hunter2@10.0.0.5/app",
-                  "amqp://guest:guest@rabbit:5672//",
-                  "mongodb+srv://appuser:pw123@cluster0.mongodb.net/db",
-                  "redis://:justapassword@cache:6379"):     # redis: password, no username
+        # Hosts are RFC 2606 reserved (.invalid can never resolve) and the passwords say what
+        # they are. The first version used a real-looking Atlas host, and GitHub's secret
+        # scanner raised a "public leak" alert on the repository within the hour - correctly,
+        # by its own rules. A fixture for a secret detector must not look like a secret to
+        # anyone else's secret detector.
+        for t in ("postgres://user:EXAMPLE-NOT-A-SECRET@db.example.invalid:5432/prod",
+                  "DATABASE_URL=mysql://root:EXAMPLE-NOT-A-SECRET@db.example.invalid/app",
+                  "amqp://guest:EXAMPLE-NOT-A-SECRET@queue.example.invalid:5672//",
+                  "mongodb+srv://user:EXAMPLE-NOT-A-SECRET@cluster.example.invalid/db",
+                  "redis://:EXAMPLE-NOT-A-SECRET@cache.example.invalid:6379"):   # password, no username
             with self.subTest(t):
                 self.assertTrue(self.hit(t), f"let through: {t}")
+
+
+    def test_no_fixture_here_looks_like_a_real_credential(self):
+        """The generalising guard. A test fixture for a secret detector must not trip anybody
+        else's secret detector - GitHub raised a public-leak alert on this repository over a
+        connection string invented for the test above. Hosts must be RFC 2606 reserved, and a
+        password must announce itself as one."""
+        import pathlib
+        src = pathlib.Path(__file__).read_text(encoding="utf-8")
+        for m in re.finditer(r"[a-z][a-z0-9+.-]{1,20}://[^/\s:@\"']{0,64}:([^@\s\"']{1,128})@([^/\s\"']+)",
+                             src):
+            password, host = m.group(1), m.group(2).split(":")[0]      # drop any :port
+            with self.subTest(host=host):
+                self.assertTrue(host.endswith((".invalid", ".example", ".test", ".localhost"))
+                                or host in ("localhost", "127.0.0.1"),
+                                f"{host} is not a reserved example host")
+                self.assertIn("EXAMPLE", password.upper(),
+                              f"the password {password!r} does not announce itself as a fixture")
 
     def test_ordinary_urls_are_not_secrets(self):
         for t in ("http://localhost:8080/health",
