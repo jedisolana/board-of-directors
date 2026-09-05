@@ -64,6 +64,7 @@ First release.
   model and one-seat-per-family would guarantee nothing.
 
 ### Three model tiers
+- A **search box**, because 400 models in a scroller is not a way to find one.
 - **free only · paid only · both.** Paid-only is a real want: somebody paying for quality may
   not want free models on the board at all.
 - An unrecognised tier falls back to free — a typo must not silently widen what may be spent.

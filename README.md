@@ -304,6 +304,11 @@ OpenRouter ships. They are different rankings — a coding specialist can sit mi
 and dead last on reasoning. Hover for all three indices including agentic, which says how a
 model behaves inside a harness.
 
+With paid on there are over 400 seatable models, so there is a search box. Type a vendor, a
+family or part of an id and the header says how many matched.
+
+![Searching the model list](docs/fig-search.png)
+
 Each tab says how many models it can actually rank — **best at thinking (2)** — so you know
 before you click. Scored models come first, then a line saying how many have no score for that
 dimension, then those, dimmed.

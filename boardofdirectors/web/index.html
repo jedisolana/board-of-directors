@@ -231,6 +231,12 @@
       <button class="sort on" data-k="coding">best at coding <span class="n"></span></button>
       <button class="sort" data-k="thinking">best at thinking <span class="n"></span></button>
     </div>
+    <div style="padding:8px 12px 4px">
+      <input id="mSearch" placeholder="search 400+ models..." autocomplete="off"
+             spellcheck="false" style="width:100%;padding:6px 9px;font-size:12px;
+             background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+             border-radius:6px">
+    </div>
     <div class="sorts" style="padding-top:0">
       <button class="sort on" id="tFree">free only</button>
       <button class="sort" id="tPaid">paid only</button>
@@ -350,7 +356,7 @@ const messages = () => turns.map(t => t.role === "user"
   ? {role: "user", content: t.content}
   : {role: "assistant", content: t.board ? (t.board.decision || "") : (t.content || "")})
   .filter(m => m.content);
-let sortKey = "coding", kind = "decide", nudged = false;
+let sortKey = "coding", kind = "decide", nudged = false, _shown = 0;
 
 const esc = t => (t||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const k = n => !n ? "-" : n < 1e6 ? Math.round(n/1000)+"k" : (n/1e6).toFixed(n%1e6?1:0)+"M";
@@ -448,7 +454,10 @@ function paintHeader(){
     : "requests refused by a model's provider rather than by OpenRouter";
   $("#build").textContent = S.build || "";
   const c = S.catalogue;
-  $("#aMeta").textContent = `${c.seatable} usable · ${c.families.length} families · ${c.origin}`;
+  const q = ($("#mSearch") && $("#mSearch").value || "").trim();
+  $("#aMeta").textContent = q
+    ? `${_shown} of ${c.seatable} match "${q}"`
+    : `${c.seatable} usable · ${c.families.length} families · ${c.origin}`;
 }
 
 function paintModels(){
@@ -456,7 +465,13 @@ function paintModels(){
   // Unmeasured models sort last and stay blank. A missing score is "never measured",
   // not zero -- filling it in would rank a model bottom for a fact nobody established.
   const sc = m => sortKey === "size" ? (m.context_length || 0) : (m.score || {})[sortKey];
-  const list = S.models.slice().sort((a,b) => {
+  // With 400+ models a scroller is not a way to find one. The list is 20,000 pixels tall in
+  // a 484-pixel panel, so without a filter you see ten and scroll for the rest.
+  const q = ($("#mSearch").value || "").trim().toLowerCase();
+  const match = m => !q || m.id.toLowerCase().includes(q)
+                  || (m.name || "").toLowerCase().includes(q)
+                  || m.family.toLowerCase().includes(q);
+  const list = S.models.slice().filter(match).sort((a,b) => {
     if(a.seatable !== b.seatable) return b.seatable - a.seatable;
     const x = sc(a), y = sc(b);
     if(x == null && y == null) return a.id.localeCompare(b.id);
@@ -520,6 +535,7 @@ function paintModels(){
   $("#bMeta").textContent = board.length
       ? `${board.length} seated · ${new Set(board.map(id=>byId(id).family)).size} families`
       : "none chosen — auto at run time";
+  _shown = list.length;
   const seated = $("#seated");
   seated.innerHTML = board.map(id => {
     const p = pretty(byId(id));
@@ -871,6 +887,8 @@ async function nudge(){
   }
 }
 
+$("#mSearch").oninput = () => { paintModels(); paintHeader(); };
+$("#mSearch").onkeydown = e => { if(e.key === "Escape"){ e.target.value = ""; paintModels(); paintHeader(); } };
 document.querySelectorAll(".sort").forEach(b => b.onclick = () => {
   sortKey = b.dataset.k;
   document.querySelectorAll(".sort").forEach(x => x.classList.toggle("on", x === b));
