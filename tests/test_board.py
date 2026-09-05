@@ -11,6 +11,7 @@ import inspect
 import os
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -1278,6 +1279,54 @@ class WritingFilesSafely(unittest.TestCase):
         self.assertIsNotNone(m, "the temp name is not built from a format string")
         self.assertIn("getpid", m.group(1) + src)
         self.assertIn("get_ident", src, "two THREADS was the case that actually bit")
+
+    def test_the_package_imports_without_fcntl(self):
+        """fcntl is Unix-only, and it was imported at module scope in two files.
+
+        The package did not import AT ALL on Windows - an ImportError before anything ran,
+        under a README promising no dependencies and Python 3.10+. CI ran Ubuntu and macOS,
+        so it could never have caught it. It runs Windows now, and this asserts the same
+        thing without needing one.
+        """
+        import subprocess
+        probe = (
+            "import sys\n"
+            "class B:\n"
+            "    def find_spec(self, n, p=None, t=None):\n"
+            "        if n == 'fcntl': raise ImportError('no fcntl')\n"
+            "sys.meta_path.insert(0, B())\n"
+            "import boardofdirectors\n"
+            "from boardofdirectors import atomic, usage, config\n"
+            "print('ok')\n"
+        )
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        r = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                           cwd=root)
+        self.assertEqual(r.returncode, 0, f"import fails without fcntl:\n{r.stderr[-600:]}")
+
+    def test_locking_still_serialises_threads_without_fcntl(self):
+        """Losing cross-PROCESS locking on Windows is acceptable. Losing cross-THREAD locking
+        is not - threads are the case that actually bit, from one parallel board."""
+        import boardofdirectors.atomic as a
+        real, a.fcntl = a.fcntl, None
+        try:
+            atomic.write_json(self.p, {"n": 0})
+
+            def hammer():
+                for _ in range(20):
+                    with a.locked(self.p):
+                        c = a.read_json(self.p, {}) or {}
+                        c["n"] = c.get("n", 0) + 1
+                        a.write_json(self.p, c)
+
+            ts = [threading.Thread(target=hammer) for _ in range(8)]
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
+            self.assertEqual(a.read_json(self.p)["n"], 160)
+        finally:
+            a.fcntl = real
 
     def test_nothing_is_left_behind(self):
         for i in range(20):

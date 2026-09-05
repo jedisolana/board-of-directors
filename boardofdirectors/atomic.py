@@ -21,10 +21,14 @@ from __future__ import annotations
 
 import contextlib
 import errno
-import fcntl
 import json
 import os
 import threading
+
+try:
+    import fcntl
+except ImportError:                      # Windows has no fcntl
+    fcntl = None
 
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
@@ -44,9 +48,16 @@ def locked(path: str):
     flock is per open file description and does not serialise threads sharing a descriptor,
     and a thread lock says nothing to a second console.
     """
-    lockfile = path + ".lock"
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with _thread_lock(path):
+        if fcntl is None:
+            # No fcntl means Windows. The thread lock still covers the case that actually
+            # bites - a parallel board writing from several threads of ONE process - and two
+            # consoles at once is left unserialised rather than the package refusing to
+            # import at all. Degrade, do not disappear.
+            yield
+            return
+        lockfile = path + ".lock"
         # Held open across the yield on purpose: an advisory lock lives exactly as long as its
         # descriptor, so a context manager here would release it before the caller writes.
         fh = open(lockfile, "w", encoding="utf-8")  # noqa: SIM115

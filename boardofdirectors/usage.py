@@ -18,10 +18,8 @@ Two things it cannot see, both stated plainly wherever the number is shown:
 """
 from __future__ import annotations
 
-import fcntl
 import os
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 
 from . import atomic, config
@@ -33,26 +31,15 @@ def _today() -> str:
     return time.strftime("%Y-%m-%d", time.gmtime())
 
 
-@contextmanager
 def _locked():
-    """Serialise read-modify-write on the ledger.
+    """The ledger's lock, borrowed from `atomic` rather than kept as a second copy here.
 
-    Every counter update is read, add one, write. Two consoles against the same home - or a
-    board firing members concurrently - interleave those and calls vanish. An undercount is
-    the dangerous direction here: it reports headroom that is not there.
+    The copy was Unix-only - a bare `import fcntl` at module scope, which meant the whole
+    package failed to import on Windows before anything ran. Two implementations of one lock
+    is one too many, and this was the one nobody was maintaining.
     """
-    config._ensure_home()
-    # Held open deliberately across the yield: the advisory lock lives as long as the
-    # descriptor does, so a context manager here would release it before the caller writes.
-    fh = open(LEDGER + ".lock", "w")  # noqa: SIM115
-    try:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        yield
-    finally:
-        try:
-            fcntl.flock(fh, fcntl.LOCK_UN)
-        finally:
-            fh.close()
+    return atomic.locked(LEDGER)
+
 
 
 def _load() -> dict:
