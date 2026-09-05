@@ -35,7 +35,7 @@ First release.
 
 ### The audit before release
 Two deep passes over the finished program, hunting the mistakes a first release ships with.
-Nine found, each one fixed with a test that fails without the fix:
+Eleven found, each one fixed with a test that fails without the fix:
 
 - **A `pip install` served a 404.** The console page was never packaged; every test ran
   against the source tree. CI now builds the wheel, installs it clean, and asks the installed
@@ -56,6 +56,11 @@ Nine found, each one fixed with a test that fails without the fix:
   Caught now.
 - **A stale build directory shipped deleted files in the wheel.** The build step cleans first,
   and CI checks the artifact's contents.
+- **One tooltip took catalogue data unescaped.** Benchmark scores from the feed went straight
+  into a title attribute. Scores are now numbers or nothing at the server, and the page
+  escapes every interpolated attribute — structurally tested.
+- **The library guide documented an attribute that does not exist** (`scan.count`). Every
+  example in the guide now runs as part of the test suite, so it cannot drift again.
 
 ### Honesty about limits
 - Free-tier allowance is read from the account (`is_free_tier`) rather than asked of the user.
