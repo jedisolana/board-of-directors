@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — 2026-09-04
+## 0.1.0 — 2026-09-05
 
 Released as **Board of Directors**.
 
@@ -32,6 +32,30 @@ First release.
   A **loader, not a harness** — you choose what it reads.
 - Every file is scanned for secrets first. A folder with findings is refused, with an explicit
   per-send override.
+
+### The audit before release
+Two deep passes over the finished program, hunting the mistakes a first release ships with.
+Nine found, each one fixed with a test that fails without the fix:
+
+- **A `pip install` served a 404.** The console page was never packaged; every test ran
+  against the source tree. CI now builds the wheel, installs it clean, and asks the installed
+  copy for a page.
+- **Paid models could be called with paid switched off** — through the everyday chat turn and
+  through the OpenAI-compatible endpoint, with the spend cap at $0.00. Both doors now check
+  at the request, and a zero cap overrules even an explicit yes.
+- **The one endpoint that writes files could write anywhere on disk.** Containment is now one
+  rule, enforced by the writer itself, symlinks included.
+- **The folder scanner read through symlinks** pointing outside the folder, which would have
+  put a linked credentials file into a prompt. Skipped now, and said so.
+- **Every member ranked a line-up containing its own answer**, under a prompt promising
+  otherwise. Each ranker now judges only the others.
+- **A wall of chair failures ran the whole catalogue.** Four in a row end the session with
+  the members' answers kept.
+- **Closing the tab printed a traceback** in the terminal. It no longer looks like a crash.
+- **Credentials written into a URL** (`scheme://user:password@host`) passed the secret seam.
+  Caught now.
+- **A stale build directory shipped deleted files in the wheel.** The build step cleans first,
+  and CI checks the artifact's contents.
 
 ### Honesty about limits
 - Free-tier allowance is read from the account (`is_free_tier`) rather than asked of the user.
