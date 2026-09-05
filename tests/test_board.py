@@ -1279,6 +1279,26 @@ class ThePage(unittest.TestCase):
         self.assertNotRegex(h, r"(?m)^\s*dialog\{[^}]*display:\s*flex",
                             "bare `dialog{display:flex}` paints the closed state too")
 
+    def test_control_groups_do_not_share_a_class(self):
+        """Two independent filters shared one class and cleared each other's highlight.
+
+        The rank tabs (best at coding / thinking) and the tier pills (free / paid / both) are
+        different questions that COMPOSE - "best at coding, among free models". Both carried
+        `class="sort"`, and the rank handler did
+        `querySelectorAll(".sort").forEach(x => x.classList.toggle("on", x === b))`, so
+        clicking a score tab deselected the tier pills. Nothing threw; the filters just looked
+        broken, which is how it got reported.
+        """
+        h = self.page()
+        rank = set(re.findall(r'class="[^"]*\brank\b[^"]*"[^>]*data-k="([a-z]+)"', h))
+        tier = set(re.findall(r'class="[^"]*\btier\b[^"]*"[^>]*id="([a-zA-Z]+)"', h))
+        self.assertTrue(rank, "no rank tabs found")
+        self.assertTrue(tier, "no tier pills found")
+        # every group-wide toggle must name its OWN group, never the shared base class
+        for sel in re.findall(r'querySelectorAll\("\.([a-z]+)"\)\.forEach\(x => x\.classList', h):
+            self.assertNotEqual(sel, "sort",
+                                "a group toggle on the shared class clears the other group")
+
     def test_tags_are_balanced(self):
         """A half-applied edit left a stray closing tag inside the dialog."""
         h = self.page()

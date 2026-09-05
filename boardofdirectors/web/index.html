@@ -228,8 +228,8 @@
       <h2>free models</h2><small id="aMeta"></small>
     </div>
     <div class="sorts">
-      <button class="sort on" data-k="coding">best at coding <span class="n"></span></button>
-      <button class="sort" data-k="thinking">best at thinking <span class="n"></span></button>
+      <button class="sort rank on" data-k="coding">best at coding <span class="n"></span></button>
+      <button class="sort rank" data-k="thinking">best at thinking <span class="n"></span></button>
     </div>
     <div style="padding:8px 12px 4px">
       <input id="mSearch" placeholder="search 400+ models..." autocomplete="off"
@@ -238,9 +238,9 @@
              border-radius:6px">
     </div>
     <div class="sorts" style="padding-top:0">
-      <button class="sort on" id="tFree">free only</button>
-      <button class="sort" id="tPaid">paid only</button>
-      <button class="sort" id="tBoth">both</button>
+      <button class="sort tier on" id="tFree">free only</button>
+      <button class="sort tier" id="tPaid">paid only</button>
+      <button class="sort tier" id="tBoth">both</button>
       <button class="sort" id="fCap" hidden title="most one session may cost"></button>
     </div>
     <div class="models" id="models"></div>
@@ -556,7 +556,7 @@ function paintPaidToggle(){
   // seats anything, so the safe mode is where you start and where the switch puts you back.
   const t = (S && S.model_tier) || "free";
   for(const [id, want] of [["tFree","free"], ["tPaid","paid"], ["tBoth","both"]])
-    $("#" + id).classList.toggle("on", t === want);
+    $("#" + id).classList.toggle("on", t === want);       // the rank row is left alone
   $("#tFree").textContent = t === "free" ? "free only \u{1F512}" : "free only";
   const cap = $("#fCap");
   cap.hidden = (t === "free");
@@ -889,10 +889,13 @@ async function nudge(){
 
 $("#mSearch").oninput = () => { paintModels(); paintHeader(); };
 $("#mSearch").onkeydown = e => { if(e.key === "Escape"){ e.target.value = ""; paintModels(); paintHeader(); } };
-document.querySelectorAll(".sort").forEach(b => b.onclick = () => {
+// TWO INDEPENDENT AXES: which score to rank by, and which models are eligible. They compose -
+// "best at coding, among free models". They shared a class and one handler, so clicking a
+// score tab cleared the highlight off the tier pills and the whole thing looked broken.
+document.querySelectorAll(".rank").forEach(b => b.onclick = () => {
   sortKey = b.dataset.k;
-  document.querySelectorAll(".sort").forEach(x => x.classList.toggle("on", x === b));
-  paintModels();
+  document.querySelectorAll(".rank").forEach(x => x.classList.toggle("on", x === b));
+  paintModels(); paintHeader();
 });
 $("#mSingle").onclick = () => setMode("single");
 $("#mBoard").onclick  = () => setMode("board");
