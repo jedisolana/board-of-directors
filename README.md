@@ -1,5 +1,11 @@
 # Board of Directors
 
+[![tests](https://github.com/jedisolana/board-of-directors/actions/workflows/tests.yml/badge.svg)](https://github.com/jedisolana/board-of-directors/actions/workflows/tests.yml)
+[![release](https://img.shields.io/github/v/release/jedisolana/board-of-directors?label=release)](https://github.com/jedisolana/board-of-directors/releases)
+[![python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **A board made of other people's models.**
 
 Ask a question once and several models from *different companies* answer it independently,
