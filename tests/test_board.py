@@ -8,6 +8,7 @@ import contextlib
 import datetime
 import importlib
 import inspect
+import io
 import os
 import re
 import shutil
@@ -1908,6 +1909,62 @@ class Symlinks(unittest.TestCase):
         self.assertTrue(any("outside the folder" in n for n in notes), notes)
         with open(os.path.join(self.out, "creds.env"), encoding="utf-8") as f:
             self.assertIn("hunter2", f.read())
+
+
+class ClosedTab(unittest.TestCase):
+    """Closing the tab is the most ordinary thing a person does to a dashboard.
+
+    It must not print a traceback in the terminal they are still looking at.
+    """
+
+    class DeadPipe(io.BytesIO):
+        def write(self, b): raise BrokenPipeError(32, "Broken pipe")
+        def flush(self): pass
+
+    class Handler:
+        def __init__(self): self.wfile = ClosedTab.DeadPipe()
+        def send_response(self, *a): pass
+        def send_header(self, *a): pass
+        def end_headers(self): pass
+
+    def run_with(self, fake_board):
+        real_board, real_state = server._board, server._state
+        server._board, server._state = fake_board, lambda: {"usage": {}}
+        try:
+            server._stream_board(self.Handler(), {})
+        finally:
+            server._board, server._state = real_board, real_state
+
+    def test_nothing_escapes_whenever_the_tab_closes(self):
+        """The `done` push sat outside the guard, so finishing a board and closing the tab in
+        the same second was the one moment that still threw."""
+        for name, fake in (
+            ("after a clean finish", lambda p, on_event=None: {"answers": [], "calls": 0}),
+            ("after an error",       lambda p, on_event=None: {"error": "boom"}),
+            ("mid-run",              lambda p, on_event=None: on_event({"type": "answer"})),
+        ):
+            with self.subTest(name):
+                self.run_with(fake)     # must not raise
+
+    def test_the_server_stays_quiet_about_a_dropped_connection(self):
+        printed = []
+        srv = server._Server.__new__(server._Server)
+        try:
+            raise ConnectionResetError(54, "Connection reset by peer")
+        except ConnectionResetError:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                srv.handle_error(None, ("127.0.0.1", 1))
+            printed.append(err.getvalue())
+        self.assertEqual(printed[0], "", "a closed tab printed to stderr")
+
+    def test_a_real_error_is_still_printed(self):
+        srv = server._Server.__new__(server._Server)
+        try:
+            raise ValueError("a genuine bug")
+        except ValueError:
+            with contextlib.redirect_stderr(io.StringIO()) as err, contextlib.suppress(Exception):
+                srv.handle_error(None, ("127.0.0.1", 1))
+        self.assertIn("a genuine bug", err.getvalue(), "a real error was swallowed")
 
 
 if __name__ == "__main__":

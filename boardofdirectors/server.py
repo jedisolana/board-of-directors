@@ -19,6 +19,7 @@ import http.server
 import json
 import os
 import socketserver
+import sys
 import threading
 import time
 import webbrowser
@@ -321,19 +322,23 @@ def _stream_board(handler, payload: dict) -> None:
             handler.wfile.write((json.dumps(ev) + "\n").encode())
             handler.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            raise                       # the tab closed; stop the session with it
+            raise                       # the tab closed; unwinds to the guard below
 
+    # Every write below can meet a closed tab, including the last one. Guarding only the
+    # middle of the run left the `done` event exposed: finish a board, close the tab in the
+    # same second, and socketserver printed a traceback in the terminal for it.
     try:
         out = _board(payload, on_event=push)
+        if out.get("error"):
+            push({"type": "error", "error": out["error"]})
+        else:
+            push({"type": "done", **out, "usage": _state()["usage"]})
     except redact.Refused as e:
-        return push({"type": "refused", "findings": [str(f) for f in e.findings]})
+        push({"type": "refused", "findings": [str(f) for f in e.findings]})
     except (BrokenPipeError, ConnectionResetError):
-        return
+        return                          # the tab closed; nothing to report to nobody
     except Exception as e:
-        return push({"type": "error", "error": f"{type(e).__name__}: {e}"})
-    if out.get("error"):
-        return push({"type": "error", "error": out["error"]})
-    push({"type": "done", **out, "usage": _state()["usage"]})
+        push({"type": "error", "error": f"{type(e).__name__}: {e}"})
 
 
 # Loopback keeps the NETWORK out. It does not keep out the browser, and saying "no auth is
@@ -627,6 +632,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 class _Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        """A closed tab is not an error, and it should not look like one.
+
+        The default prints a full traceback to stderr. On a local dashboard the person
+        reading that terminal is the same person who just closed the tab, and a wall of
+        socketserver internals reads like a crash. Anything else still gets printed.
+        """
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
 
 
 def _in_use(port: int) -> bool:
