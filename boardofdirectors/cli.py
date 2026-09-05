@@ -15,7 +15,8 @@ DASH = "  " + "-" * 74
 def _catalogue(args, quiet: bool = False) -> dict:
     c = catalogue.load(live=not getattr(args, "offline", False))
     if not quiet:
-        print(f"  catalogue: {len(c['models'])} free model(s), {c['origin']}, "
+        free = sum(1 for m in c["models"] if m.get("free"))
+        print(f"  catalogue: {len(c['models'])} model(s), {free} free, {c['origin']}, "
               f"read {c['captured']}", file=sys.stderr)
     return c
 

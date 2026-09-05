@@ -12,12 +12,19 @@ question is worth money.
 ![The console](docs/fig-console.png)
 
 ```bash
-python3 -m boardofdirectors.cli      # from a clone
-pip install -e . && board            # or install it and get the `board` command
+pipx install git+https://github.com/jedisolana/board-of-directors && board
 ```
+
+Or from a clone: `python3 -m boardofdirectors.cli` runs it with nothing installed, and
+`pipx install .` gives you the `board` command.
 
 That's the whole thing. No dependencies, no build step, no key required to look around — it
 opens a console in your browser, served from your own machine.
+
+> **Why `pipx` and not `pip`.** Homebrew, Debian and Ubuntu all ship a Python that refuses a
+> bare `pip install` now ("externally managed"). `pipx` is the standard way to install a
+> *program* rather than a library: it gets its own environment and a command on your PATH.
+> A virtualenv with `pip install -e .` inside it works just as well if you prefer.
 
 > **On the screenshots.** The two under *Here it is working* are real sessions against live
 > models — the text is what those models actually said. The interface shots use the built-in
