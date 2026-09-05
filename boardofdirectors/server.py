@@ -353,11 +353,21 @@ LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"}
 
 
 def _host_ok(header: str | None) -> bool:
-    """The Host must be a loopback name. Blocks DNS rebinding, which Origin alone cannot."""
+    """The Host must be a loopback name. Blocks DNS rebinding, which Origin alone cannot.
+
+    IPv6 is bracketed, so counting colons to find a port does not work: "[::1]:8420" has
+    three. Take what is inside the brackets when they are there, and split a port off only
+    when exactly one colon remains.
+    """
     if not header:
         return True                      # HTTP/1.0 and some tools send none
-    host = header.rsplit(":", 1)[0] if header.count(":") == 1 else header
-    return host.strip("[]").lower() in {h.strip("[]") for h in LOOPBACK_HOSTS}
+    h = header.strip()
+    if h.startswith("["):
+        end = h.find("]")
+        host = h[1:end] if end > 0 else ""      # unterminated bracket -> refuse
+    else:
+        host = h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+    return host.lower() in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
 
 def _origin_ok(header: str | None, port: int) -> bool:
