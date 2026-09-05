@@ -59,6 +59,14 @@
   .seatpick button:disabled{opacity:.3;cursor:default}
   .seatpick b{font-family:var(--mono);font-size:13px;color:var(--ink);min-width:14px;
               text-align:center}
+  .seatrow{display:flex;align-items:center;gap:9px;padding:6px 0}
+  .seatrow .n{font:600 10px var(--mono);color:var(--accent);width:16px}
+  .seatrow select{flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+                  border-radius:6px;padding:6px 8px;font:12.5px inherit;min-width:0}
+  .seatrow .drop{padding:2px 8px;font-size:11px;background:none;border:1px solid var(--line);
+                 border-radius:5px;color:var(--dimmer)}
+  .seatrow .drop:hover{border-color:var(--bad);color:var(--bad)}
+  .seatrow .cost{margin:0;font-size:10.5px;min-width:56px;text-align:right}
   .sessions{overflow-y:auto;max-height:26vh;padding:2px 10px 12px;flex:none}
   .sess{padding:6px 8px;border-radius:6px;cursor:pointer}
   .sess:hover{background:var(--panel2)}
@@ -275,6 +283,7 @@
         <b id="seatN">6</b>
         <button id="seatUp" title="more seats">+</button>
         <span>seats</span>
+        <button id="seatEdit" title="choose who sits in each seat">edit</button>
       </span>
       <small id="bMeta"></small>
     </div>
@@ -313,6 +322,18 @@
     </footer>
   </section>
 </main>
+
+<dialog id="dSeats">
+  <h3>The board</h3>
+  <p>One seat per company. A jury of three checkpoints from the same family is one model with
+     a stutter, so a company already seated does not appear in the other menus.</p>
+  <div id="seatRows" class="grow"></div>
+  <div class="actions">
+    <button id="seatsAuto">auto-fill</button>
+    <button id="seatsAdd">add a seat</button>
+    <button class="primary" id="seatsDone">done</button>
+  </div>
+</dialog>
 
 <dialog id="dCode">
   <h3>Audit some code</h3>
@@ -608,11 +629,10 @@ function paintModels(){
   const maxSeats = Math.min(12, new Set(S.models.filter(m => m.seatable).map(m => m.family)).size);
   seatCount = Math.max(2, Math.min(seatCount, maxSeats));
   $("#seatN").textContent = board.length || seatCount;
-  $("#seatDown").disabled = !!board.length || seatCount <= 2;
-  $("#seatUp").disabled = !!board.length || seatCount >= maxSeats;
-  $("#seatN").title = board.length
-    ? `${board.length} chosen by hand — untick them to go back to picking a size`
-    : `${seatCount} seats, filled automatically. ${maxSeats} companies available.`;
+  $("#seatDown").disabled = (board.length || seatCount) <= 2;
+  $("#seatUp").disabled = (board.length || seatCount) >= maxSeats;
+  $("#seatN").title = `${maxSeats} companies available in this mode — `
+    + `one seat each, so that is the ceiling.`;
   $("#bMeta").textContent = board.length
       ? `${board.length} seated · ${new Set(board.map(id=>byId(id).family)).size} families`
       : "none chosen — auto at run time";
@@ -665,9 +685,9 @@ async function setTier(t){
        + "saved board. Your balance still buys the higher free rate limit.", "warn");
   }
   // a saved board can hold members the new mode does not allow
-  const ok = new Set((S.models || []).filter(m => m.seatable).map(m => m.id));
-  board = board.filter(id => ok.has(id));
-  await api("/api/board", {board});
+  // A mode change swaps the whole pool, so refill rather than leaving whatever survived.
+  await fillBoard(seatCount);
+  talking = topN(1)[0] || talking;
   paint();
 }
 $("#tFree").onclick = () => setTier("free");
@@ -973,16 +993,89 @@ $("#mSearch").onkeydown = e => { if(e.key === "Escape"){ e.target.value = ""; pa
 // TWO INDEPENDENT AXES: which score to rank by, and which models are eligible. They compose -
 // "best at coding, among free models". They shared a class and one handler, so clicking a
 // score tab cleared the highlight off the tier pills and the whole thing looked broken.
-function bumpSeats(by){
-  seatCount = Math.max(2, seatCount + by);
-  paintModels(); refreshMoney();
+function topN(n){
+  // Best n by whatever the list is currently sorted on, one per family. The same rule the
+  // server uses, applied to what is on screen, so the seats you get are the rows you see.
+  const sc = m => sortKey === "price" ? (m.free ? 0 : cost1k(m)) : (m.score || {})[sortKey];
+  const pool = S.models.filter(m => m.seatable).sort((a,b) => {
+    const x = sc(a), y = sc(b);
+    if(x == null && y == null) return a.id.localeCompare(b.id);
+    if(x == null) return 1;
+    if(y == null) return -1;
+    return sortKey === "price" ? x - y : y - x;
+  });
+  const seen = new Set(), out = [];
+  for(const m of pool){
+    if(seen.has(m.family)) continue;
+    seen.add(m.family); out.push(m.id);
+    if(out.length >= n) break;
+  }
+  return out;
 }
+
+async function fillBoard(n){
+  seatCount = Math.max(2, n);
+  board = topN(seatCount);
+  seatCount = board.length;
+  await api("/api/board", {board});
+  paint(); refreshMoney();
+}
+
+function bumpSeats(by){ fillBoard(seatCount + by); }
+// A seat at a time, with the one-per-family rule doing the filtering for you: a company
+// already sitting does not appear in the other menus, so an illegal board cannot be built.
+function paintSeatRows(){
+  const box = $("#seatRows");
+  const seatedFamilies = board.map(id => byId(id).family);
+  box.innerHTML = board.map((id, i) => {
+    const m = byId(id);
+    const taken = new Set(seatedFamilies.filter((_, j) => j !== i));
+    const opts = S.models
+      .filter(x => x.seatable && (!taken.has(x.family) || x.id === id))
+      .sort((a, b) => (a.family + a.id).localeCompare(b.family + b.id))
+      .map(x => `<option value="${esc(x.id)}" ${x.id === id ? "selected" : ""}>`
+              + `${esc(pretty(x).vendor)} — ${esc(pretty(x).name)}`
+              + `${x.free ? " · free" : " · " + cents(cost1k(x)) + "/call"}</option>`).join("");
+    return `<div class="seatrow"><span class="n">${String.fromCharCode(65 + i)}</span>
+      <select data-i="${i}">${opts}</select>
+      <span class="cost ${m.free ? "free" : ""}">${m.free ? "free" : cents(cost1k(m))}</span>
+      <button class="drop" data-i="${i}" title="remove this seat">×</button></div>`;
+  }).join("") || `<div class="meta" style="padding:8px 0">no seats — add one</div>`;
+
+  box.querySelectorAll("select").forEach(sel => sel.onchange = async () => {
+    board[+sel.dataset.i] = sel.value;
+    await api("/api/board", {board});
+    paintSeatRows(); paint(); refreshMoney();
+  });
+  box.querySelectorAll(".drop").forEach(b => b.onclick = async () => {
+    board.splice(+b.dataset.i, 1);
+    seatCount = board.length;
+    await api("/api/board", {board});
+    paintSeatRows(); paint(); refreshMoney();
+  });
+}
+
+$("#seatEdit").onclick = () => { paintSeatRows(); $("#dSeats").showModal(); };
+$("#seatsDone").onclick = () => $("#dSeats").close();
+$("#seatsAuto").onclick = async () => { await fillBoard(seatCount || 6); paintSeatRows(); };
+$("#seatsAdd").onclick = async () => {
+  const next = topN(board.length + 1).find(id => !board.includes(id));
+  if(!next) return note("No company left", "Every company with a usable model already has a "
+     + "seat. Switch to `both` or `paid only` for more.", "warn");
+  board.push(next); seatCount = board.length;
+  await api("/api/board", {board});
+  paintSeatRows(); paint(); refreshMoney();
+};
 $("#seatUp").onclick = () => bumpSeats(1);
 $("#seatDown").onclick = () => bumpSeats(-1);
 
-document.querySelectorAll(".rank").forEach(b => b.onclick = () => {
+document.querySelectorAll(".rank").forEach(b => b.onclick = async () => {
   sortKey = b.dataset.k;
   document.querySelectorAll(".rank").forEach(x => x.classList.toggle("on", x === b));
+  // Re-seat and re-aim: "best at thinking" that leaves you talking to the best CODER, and
+  // seated with the best coders, has not actually done what the button says.
+  await fillBoard(seatCount);
+  talking = topN(1)[0] || talking;
   paintModels(); paintHeader();
 });
 $("#mSingle").onclick = () => setMode("single");
@@ -1352,9 +1445,11 @@ $("#keySave").onclick = async () => {
   board = S.board || [];
   tier = S.usage.qualified ? 10 : 0;
   if(tier) $("#tYes").classList.add("on"), $("#tNo").classList.remove("on");
-  talking = S.models.filter(m => m.seatable && (m.score||{}).coding != null)
-             .sort((a,b) => b.score.coding - a.score.coding)[0]?.id
-          || S.models.find(m => m.seatable)?.id || null;
+  // Seat a board and pick someone to talk to WITHOUT being asked. An empty board and no
+  // selected model is a dashboard that does nothing until you have understood it.
+  if(!board.length) board = topN(seatCount);
+  else seatCount = board.length;
+  talking = topN(1)[0] || S.models.find(m => m.seatable)?.id || null;
   paint();
   paintKeyState(); paintMgmtState();
   await paintSessions();

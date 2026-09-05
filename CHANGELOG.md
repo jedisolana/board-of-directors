@@ -64,7 +64,8 @@ First release.
   model and one-seat-per-family would guarantee nothing.
 
 ### The board
-- **Six seats by default**, with a picker. The ceiling is the number of companies available,
+- **Six seats by default**, with a picker that FILLS the board rather than asking you to tick
+  checkboxes, and an **edit** panel for choosing who sits in each one. The ceiling is the number of companies available,
   since one seat per family means there is no honest board bigger than that.
 
 ### Three model tiers
