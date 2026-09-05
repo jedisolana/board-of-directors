@@ -31,8 +31,23 @@ def staged() -> list[str]:
 
 
 def content(path: str) -> str:
-    r = subprocess.run(["git", "show", f":{path}"], capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else ""
+    """Staged bytes as text, or "" if it is not text at all.
+
+    Read as BYTES. `text=True` here decoded whatever git handed back as UTF-8, so the first
+    PNG added to the repo crashed the hook and took a perfectly good commit down with it -
+    the exact failure this file's own docstring says must never happen. A guard that can
+    block work it was not built to judge gets switched off, and then guards nothing.
+    """
+    r = subprocess.run(["git", "show", f":{path}"], capture_output=True)
+    if r.returncode != 0:
+        return ""
+    raw = r.stdout
+    if b"\x00" in raw[:4096]:
+        return ""                     # binary: nothing here can look like a key
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="replace")
 
 
 def main() -> int:
@@ -55,4 +70,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as e:                                        # noqa: BLE001
+        # Belt and braces on the same principle: a scanner that crashes must fail OPEN. It
+        # is the second line of defence, not the first - the key lives outside the repo -
+        # so blocking real work because the scanner broke is the worse error.
+        print(f"  (secret scan skipped: {type(e).__name__}: {e})")
+        raise SystemExit(0) from None

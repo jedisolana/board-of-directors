@@ -53,6 +53,16 @@ First release.
 - The chair is handed the count instead of recounting five essays.
 - The tally persists in saved sessions and in exported minutes.
 
+### Paid models
+- Every model on OpenRouter can hold a seat, each with its price on the row. **Off by
+  default**; the permission and the individual send must *both* allow it.
+- The **estimate is shown before you send**, rounds up, and a spend cap refuses anything over
+  it. Unpriced models are refused rather than costed at zero.
+- The chair follows the members' permission, so it can never turn a free session paid.
+- Your balance is read from OpenRouter with an ordinary key.
+- Routers (`openrouter/*`) can never hold a seat: two of them can pick the same underlying
+  model and one-seat-per-family would guarantee nothing.
+
 ### Honest metering
 - Optional **management key** makes the request meter exact, reading OpenRouter's own
   analytics instead of counting locally. Opt-in, stored separately, and only ever sent to the
@@ -74,6 +84,11 @@ First release.
   project commits your credentials.
 - A **pre-commit hook** reads staged content and refuses a commit carrying anything
   credential-shaped.
+
+### Documentation
+- `README.md` is the product; `docs/library.md` is the Python API.
+- Score tabs say how many models they can rank, and separate scored from unscored — the
+  published scores are sparse and they change.
 
 ### Under it
 - Standard library only. 102 tests, no network. Ruff clean. CI on Ubuntu and macOS across

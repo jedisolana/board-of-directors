@@ -44,6 +44,11 @@
   .sort{flex:1;padding:4px 9px;border-radius:14px;border:1px solid var(--line);background:none;
         color:var(--dimmer);font-size:11.5px;cursor:pointer}
   .sort.on{background:var(--panel2);color:var(--ink);border-color:var(--dimmer)}
+  .sort .n{opacity:.55;font-size:10px}
+  .divider{display:flex;align-items:center;gap:8px;padding:9px 8px 5px;font-size:10px;
+           color:var(--dimmer);text-transform:uppercase;letter-spacing:.06em}
+  .divider::after{content:"";flex:1;height:1px;background:var(--line)}
+  .m.unscored{opacity:.55}
   .score{font-family:var(--mono);font-size:11px;color:var(--dim);margin-left:auto;
          padding-left:8px;flex:none;text-align:right}
   .score b{display:block;font-size:12.5px;color:var(--ink);font-weight:600}
@@ -223,8 +228,8 @@
       <h2>free models</h2><small id="aMeta"></small>
     </div>
     <div class="sorts">
-      <button class="sort on" data-k="coding">best at coding</button>
-      <button class="sort" data-k="thinking">best at thinking</button>
+      <button class="sort on" data-k="coding">best at coding <span class="n"></span></button>
+      <button class="sort" data-k="thinking">best at thinking <span class="n"></span></button>
     </div>
     <div class="sorts" style="padding-top:0">
       <button class="sort on" id="fFree">free only</button>
@@ -450,9 +455,30 @@ function paintModels(){
     if(y == null) return -1;
     return y - x;
   });
+  // OpenRouter's scores are sparse and they MOVE - intelligence_index was populated for
+  // most free models this morning and null for most of them by evening. So the list never
+  // pretends: scored models first, then a line saying how many have no score for this
+  // dimension, then those. An empty tab looks empty on purpose instead of looking broken.
+  const scoredCount = list.filter(m => sc(m) != null).length;
+  document.querySelectorAll(".sort .n").forEach(el => {
+    const k = el.parentElement.dataset.k;
+    const n = S.models.filter(m => m.seatable && (m.score||{})[k] != null).length;
+    el.textContent = n ? `(${n})` : "(none)";
+  });
+  let brokeOut = false;
   for(const m of list){
+    if(!brokeOut && sc(m) == null){
+      brokeOut = true;
+      const d = document.createElement("div");
+      d.className = "divider";
+      d.textContent = scoredCount === 0
+        ? `no model has a published ${sortKey} score today`
+        : `${list.length - scoredCount} with no ${sortKey} score`;
+      box.appendChild(d);
+    }
     const row = document.createElement("div");
-    row.className = "m" + (m.id===talking ? " talking":"") + (m.seatable ? "":" dead");
+    row.className = "m" + (m.id===talking ? " talking":"") + (m.seatable ? "":" dead")
+                  + (sc(m) == null ? " unscored" : "");
     const p = pretty(m);
     row.title = m.id;
     row.innerHTML = `<input type="checkbox" ${board.includes(m.id)?"checked":""}
