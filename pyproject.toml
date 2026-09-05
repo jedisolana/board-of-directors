@@ -26,4 +26,6 @@ board-of-directors = "boardofdirectors.cli:main"
 packages = ["boardofdirectors"]
 
 [tool.setuptools.package-data]
-boardofdirectors = ["../data/free-models.json"]
+# The console's page and the catalogue snapshot are not optional extras - without them a
+# `pip install` produces a 404 and no offline fallback. This is the line that ships them.
+boardofdirectors = ["web/*.html", "data/*.json"]

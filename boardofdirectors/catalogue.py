@@ -25,8 +25,10 @@ import time
 import urllib.request
 
 MODELS_URL = "https://openrouter.ai/api/v1/models"
-SNAPSHOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "data", "free-models.json")
+# Inside the package, not beside it. A path that climbs out of the package works from a
+# source tree and does not survive an install: as `../data/free-models.json` it landed as a
+# top-level `data/` in site-packages, one namespace collision away from another project's.
+SNAPSHOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "free-models.json")
 
 # Free-priced rows that are not board material. A seat needs a model that can hold an
 # argument; these can't, and seating them looks like a working board that never deliberates.

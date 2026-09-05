@@ -1782,7 +1782,7 @@ class ThePage(unittest.TestCase):
     def test_the_endpoints_the_page_calls_are_served(self):
         h = self.page()
         called = set(re.findall(r'"(/api/[a-z_]+)"', h))
-        with open(os.path.join(os.path.dirname(self.PAGE), "..", "server.py")) as fh:
+        with open(os.path.join(os.path.dirname(self.PAGE), "..", "server.py"), encoding="utf-8") as fh:
             src = fh.read()
         served = set(re.findall(r'self\.path(?:\s*==\s*|\.startswith\()\s*"(/api/[a-z_]+)"', src))
         self.assertEqual(sorted(called - served), [], "page calls endpoints the server does not serve")
@@ -1805,6 +1805,46 @@ class Catalogue(unittest.TestCase):
         self.assertTrue(catalogue.fits(m, 500, 100)[0])
         self.assertFalse(catalogue.fits(m, 500, 101)[0])    # output cap, not context
         self.assertFalse(catalogue.fits(m, 950, 100)[0])    # context
+
+
+class Packaging(unittest.TestCase):
+    """A `pip install` shipped a 404 console because nothing here ever looked in the wheel.
+
+    The tests below are deliberately about the *rule* rather than the two files that broke it:
+    the next asset someone adds is the one that will be forgotten, not these.
+    """
+
+    PKG = os.path.dirname(os.path.abspath(catalogue.__file__))
+    ROOT = os.path.dirname(PKG)
+
+    def test_the_files_the_program_reads_live_inside_the_package(self):
+        """Anything resolved from the repo root vanishes the moment it is installed."""
+        for rel in ("web/index.html", "data/free-models.json"):
+            here = os.path.join(self.PKG, *rel.split("/"))
+            self.assertTrue(os.path.exists(here), f"{rel} is not inside the package directory")
+
+    def test_every_non_python_file_is_covered_by_a_package_data_glob(self):
+        """The guard that generalises: add an asset, forget the glob, fail here."""
+        import fnmatch
+        with open(os.path.join(self.ROOT, "pyproject.toml"), encoding="utf-8") as f:
+            toml = f.read()
+        block = re.search(r"^boardofdirectors\s*=\s*\[(.*?)\]", toml, re.S | re.M)
+        self.assertIsNotNone(block, "pyproject has no package-data entry for boardofdirectors")
+        globs = re.findall(r'"([^"]+)"', block.group(1))
+
+        for dirpath, dirnames, filenames in os.walk(self.PKG):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for name in filenames:
+                rel = os.path.relpath(os.path.join(dirpath, name), self.PKG).replace(os.sep, "/")
+                if rel.endswith(".py"):
+                    continue
+                self.assertTrue(any(fnmatch.fnmatch(rel, g) for g in globs),
+                                f"{rel} ships in no package-data glob - a pip install will not have it")
+
+    def test_the_snapshot_path_is_package_relative(self):
+        """It was repo-relative, so the offline fallback only worked from a git checkout."""
+        self.assertTrue(catalogue.SNAPSHOT.startswith(self.PKG + os.sep),
+                        f"SNAPSHOT points outside the package: {catalogue.SNAPSHOT}")
 
 
 if __name__ == "__main__":

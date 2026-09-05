@@ -26,6 +26,19 @@ The short version, for a post or a message:
 > underneath: a member that was rate-limited is never counted as agreement. Runs free, runs
 > local, no dependencies.
 
+## Building the release
+
+    rm -rf build dist ./*.egg-info
+    python -m build
+
+The `rm` is not housekeeping. `setuptools` copies sources into `build/lib` and never removes
+anything from it, so a file you deleted or moved is still there and still goes into the wheel.
+Moving `data/` into the package left a ghost copy of the old top-level `data/` in every wheel
+built afterwards, which `pip install` then unpacked straight into `site-packages`.
+
+CI builds and installs the wheel on every push for the same reason: the unit tests run against
+the source tree, so they cannot see what the artifact actually contains.
+
 ## The release
 
 Tag `v0.1.0`. `CHANGELOG.md` is the release body.
