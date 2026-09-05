@@ -287,6 +287,29 @@ session.labels       # "Member A" -> model id, the audit trail
 | `board check "<text>"` | test the outbound seam, sending nothing |
 | `board refresh` | re-read the live catalogue |
 
+## Your key cannot end up in the repo
+
+It lives in `~/.board-of-directors/`, which is **not inside the project** — so there is no
+path by which committing the repo commits your key. That is the real defence: structure, not
+vigilance.
+
+The second one is a pre-commit hook that reads what you have *staged* and refuses the commit
+if anything in it looks like a credential:
+
+```bash
+git config core.hooksPath .githooks    # once, after cloning
+```
+
+```
+  COMMIT REFUSED - something staged looks like a secret:
+    notes.py: an OpenRouter API key (openrouter key): sk-o...1234
+```
+
+It reads the staged content rather than the working tree, because what is about to be
+committed is not necessarily what is on disk. `git commit --no-verify` bypasses it
+deliberately. Test fixtures and the README are skipped — they hold examples on purpose, and
+the suite checks those separately.
+
 ## Tests
 
 ```bash

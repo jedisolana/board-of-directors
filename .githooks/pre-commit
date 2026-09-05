@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Refuse a commit that carries a secret.
+
+The key lives outside the repo by construction, which is the real defence. This is the second
+one, for the day something is pasted into a file by accident - a debug print, a curl command
+copied into a comment, a fixture built from a real key rather than a fake one.
+
+It reads the STAGED content, not the working tree: what is about to be committed is not
+necessarily what is on disk.
+
+Install:  git config core.hooksPath .githooks
+Bypass:   git commit --no-verify   (deliberate, and it tells you that is what you did)
+"""
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from boardofdirectors import redact
+except Exception:
+    sys.exit(0)          # never block a commit because the hook itself broke
+
+ALLOW_FIXTURES = ("tests/", "README.md", "CHANGELOG.md", ".githooks/")
+
+
+def staged() -> list[str]:
+    out = subprocess.run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+                         capture_output=True, text=True).stdout
+    return [f for f in out.split("\n") if f.strip()]
+
+
+def content(path: str) -> str:
+    r = subprocess.run(["git", "show", f":{path}"], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def main() -> int:
+    findings = []
+    for path in staged():
+        if path.startswith(ALLOW_FIXTURES):
+            continue          # these hold deliberate examples; the suite checks them instead
+        for f in redact.scan(content(path)):
+            if f.rule in ("dotenv path", "home path"):
+                continue
+            findings.append((path, str(f)))
+    if not findings:
+        return 0
+    print("\n  COMMIT REFUSED - something staged looks like a secret:\n")
+    for path, what in findings[:20]:
+        print(f"    {path}: {what}")
+    print("\n  Nothing was committed. Remove it, or `git commit --no-verify` if you are")
+    print("  certain it is a fixture - but then say so in the commit message.\n")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

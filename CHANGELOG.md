@@ -69,6 +69,12 @@ First release.
 - **Export** a session as markdown for a pull request or a decision log.
 - Renaming the project carries an existing install's key, tier and call count across.
 
+### Keeping the key out
+- The key lives outside the repo by construction — there is no path by which committing the
+  project commits your credentials.
+- A **pre-commit hook** reads staged content and refuses a commit carrying anything
+  credential-shaped.
+
 ### Under it
 - Standard library only. 102 tests, no network. Ruff clean. CI on Ubuntu and macOS across
   Python 3.10, 3.12 and 3.13.
