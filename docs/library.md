@@ -287,7 +287,7 @@ machine.
 from boardofdirectors import codebase
 
 scan = codebase.scan("~/Desktop/myproject")
-scan.count, scan.tokens, scan.clean, scan.findings
+len(scan.files), scan.tokens, scan.clean, scan.findings
 
 msg = codebase.audit_message(scan, budget_tokens=150_000)
 board.ask_in_context(msg, members=members)

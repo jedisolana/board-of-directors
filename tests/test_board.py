@@ -2366,5 +2366,57 @@ class CredentialsInsideAUrl(unittest.TestCase):
                 self.assertFalse(self.hit(t), f"false positive: {t}")
 
 
+class TheDocumentationRuns(unittest.TestCase):
+    """Every python block in docs/library.md is executed, verbatim.
+
+    A guide drifts the moment nothing runs it: an argument gets renamed, the example keeps
+    the old name, and the first person to hit the difference is a stranger pasting the
+    quickstart. Network calls are wrapped to the offline transport; nothing else is touched.
+    """
+
+    DOCS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(board.__file__))),
+                        "docs", "library.md")
+
+    def test_every_example_runs_as_written(self):
+        with open(self.DOCS, encoding="utf-8") as f:
+            blocks = re.findall(r"```python\n(.*?)```", f.read(), re.S)
+        self.assertGreater(len(blocks), 10, "the guide lost its examples")
+
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, ignore_errors=True)
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        self.addCleanup(lambda: (os.environ.__setitem__("BOARD_HOME", old) if old
+                                 else os.environ.pop("BOARD_HOME", None)))
+
+        _ask, _aic, _load = board.ask, board.ask_in_context, catalogue.load
+        board.ask = lambda q, **kw: _ask(q, **{"transport": OfflineTransport(),
+                                               "live_catalogue": False, **kw})
+        board.ask_in_context = lambda q, **kw: _aic(q, **{"transport": OfflineTransport(),
+                                                          "live_catalogue": False, **kw})
+        catalogue.load = lambda live=True: _load(live=False)
+        self.addCleanup(lambda: (setattr(board, "ask", _ask),
+                                 setattr(board, "ask_in_context", _aic),
+                                 setattr(catalogue, "load", _load)))
+
+        # names the reference fragments leave to the reader ("whatever you have").
+        # `m` is a REAL normalised model, so the guide's promised keys are checked against
+        # what catalogue actually produces -- a doc that lists a field the code dropped fails.
+        real_m = catalogue.snapshot()["models"][0]
+        ns = {"__name__": "docexample", "text": "the plan looks fine",
+              "answers": [], "m": real_m,
+              "prompt_tokens": 1000, "completion_tokens": 400,
+              "turns": [{"role": "user", "content": "hi"}]}
+        with open(os.devnull, "w", encoding="utf-8") as null, \
+                contextlib.redirect_stdout(null):
+            for i, b in enumerate(blocks):
+                if "OpenAI(" in b:            # the external-client example needs a console
+                    continue
+                if "~/Desktop/myproject" in b:  # the reader's folder, not ours
+                    b = b.replace("~/Desktop/myproject", home)
+                with self.subTest(block=i, first_line=b.strip().splitlines()[0][:60]):
+                    exec(compile(b, f"docs-example-{i}", "exec"), ns)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
