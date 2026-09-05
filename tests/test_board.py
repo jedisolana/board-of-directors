@@ -23,6 +23,7 @@ from boardofdirectors import (
     board,
     budget,
     catalogue,
+    codebase,
     config,
     cost,
     openai_api,
@@ -1845,6 +1846,68 @@ class Packaging(unittest.TestCase):
         """It was repo-relative, so the offline fallback only worked from a git checkout."""
         self.assertTrue(catalogue.SNAPSHOT.startswith(self.PKG + os.sep),
                         f"SNAPSHOT points outside the package: {catalogue.SNAPSHOT}")
+
+
+class Symlinks(unittest.TestCase):
+    """`.env -> ~/secrets/.env` is an ordinary thing to have in a project.
+
+    The scanner read straight through it, which meant the contents of a file outside the
+    folder went into a prompt sent to several outside companies. Nothing in the folder looked
+    wrong, and the audit report listed it as just another source file.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.proj = os.path.join(self.tmp, "proj")
+        self.out = os.path.join(self.tmp, "outside")
+        os.makedirs(self.proj)
+        os.makedirs(self.out)
+        with open(os.path.join(self.proj, "main.py"), "w", encoding="utf-8") as f:
+            f.write("print(1)\n")
+        with open(os.path.join(self.out, "creds.env"), "w", encoding="utf-8") as f:
+            f.write("AWS_SECRET=hunter2\n")
+
+    def link(self, name, target):
+        os.symlink(target, os.path.join(self.proj, name))
+
+    def test_a_link_out_of_the_folder_is_never_read(self):
+        self.link("config.py", os.path.join(self.out, "creds.env"))
+        s = codebase.scan(self.proj)
+        self.assertEqual([f.rel for f in s.files], ["main.py"])
+        self.assertNotIn("hunter2", "".join(f.text for f in s.files))
+        self.assertIn("config.py", [rel for rel, _ in s.skipped])
+
+    def test_a_link_inside_the_folder_still_works(self):
+        """The fix must not break a monorepo that links one of its own files."""
+        with open(os.path.join(self.proj, "real.py"), "w", encoding="utf-8") as f:
+            f.write("X = 1\n")
+        self.link("alias.py", os.path.join(self.proj, "real.py"))
+        s = codebase.scan(self.proj)
+        self.assertIn("alias.py", [f.rel for f in s.files])
+
+    def test_containment_resolves_both_sides(self):
+        """Resolving only the file is the classic way to write this wrong: on macOS /tmp is
+        itself a link, so every file under a /tmp root would look like an escape."""
+        self.assertTrue(codebase.inside(self.proj, os.path.join(self.proj, "main.py")))
+        self.assertFalse(codebase.inside(self.proj, os.path.join(self.out, "creds.env")))
+        self.assertTrue(codebase.inside("/tmp", "/tmp"))
+
+    def test_a_symlinked_folder_is_reported_not_silently_dropped(self):
+        os.symlink(self.out, os.path.join(self.proj, "shared"))
+        s = codebase.scan(self.proj)
+        self.assertIn("shared", [rel for rel, _ in s.skipped])
+        self.assertNotIn("hunter2", "".join(f.text for f in s.files))
+
+    def test_the_write_side_refuses_a_link_even_if_it_is_allowed(self):
+        """The allowlist is data. The check that counts stands next to the write."""
+        self.link("config.py", os.path.join(self.out, "creds.env"))
+        text = "----- config.py -----\nowned = True\n"
+        changes, notes = patch.parse(text, self.proj, allowed={"config.py"})
+        self.assertEqual(changes, [])
+        self.assertTrue(any("outside the folder" in n for n in notes), notes)
+        with open(os.path.join(self.out, "creds.env"), encoding="utf-8") as f:
+            self.assertIn("hunter2", f.read())
 
 
 if __name__ == "__main__":

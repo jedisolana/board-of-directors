@@ -84,6 +84,18 @@ class Scan:
                 "findings": [{"rel": r, "what": w} for r, w in self.findings]}
 
 
+def inside(root: str, path: str) -> bool:
+    """True when `path` really lives under `root`, symlinks followed.
+
+    Both sides get resolved. Resolving only one is the classic way to write this wrong: on
+    macOS `/tmp` is itself a symlink to `/private/tmp`, so a root the user typed as `/tmp/x`
+    would fail to contain every one of its own files.
+    """
+    r = os.path.realpath(root)
+    p = os.path.realpath(path)
+    return p == r or p.startswith(r + os.sep)
+
+
 def _is_source(name: str) -> bool:
     if name in SKIP_NAMES or name.startswith("."):
         return name in (".env.example",)
@@ -101,12 +113,29 @@ def scan(root: str, max_files: int = 400) -> Scan:
     findings: list[tuple[str, str]] = []
 
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        keep = []
+        for d in dirnames:
+            if d in SKIP_DIRS or d.startswith("."):
+                continue
+            if os.path.islink(os.path.join(dirpath, d)):
+                # os.walk does not follow these, which is right - but silently, and the user
+                # deserves to know a directory they can see was not read.
+                skipped.append((os.path.relpath(os.path.join(dirpath, d), root), "symlinked folder"))
+                continue
+            keep.append(d)
+        dirnames[:] = keep
         for name in sorted(filenames):
             full = os.path.join(dirpath, name)
             rel = os.path.relpath(full, root)
             if not _is_source(name):
                 skipped.append((rel, "not a source file"))
+                continue
+            # A symlink is a hole in the folder. `.env -> ~/secrets/.env` is an ordinary
+            # thing to have in a project, and reading it would put someone's credentials in
+            # a prompt sent to several outside companies. os.walk already refuses to descend
+            # symlinked directories; this is the file case, which it does not cover.
+            if os.path.islink(full) and not inside(root, full):
+                skipped.append((rel, "symlink pointing out of the folder"))
                 continue
             try:
                 size = os.path.getsize(full)

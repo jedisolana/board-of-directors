@@ -31,7 +31,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from . import atomic
+from . import atomic, codebase
 
 FENCE = re.compile(r"^-{3,}\s*(?P<path>[^\n]+?)\s*-{3,}\s*$", re.M)
 
@@ -105,6 +105,12 @@ def parse(text: str, root: str, allowed: set[str]) -> tuple[list[Change], list[s
         full = os.path.abspath(os.path.join(root, rel))
         if os.path.commonpath([full, root]) != root:
             notes.append(f"{rel}: outside the folder — refused")
+            continue
+        # Belt and braces on the symlink case. The scanner already refuses to show the board
+        # a link that leaves the folder, so one should never reach the allowlist - but the
+        # allowlist is data, and the check that matters is the one standing next to the write.
+        if os.path.islink(full) or not codebase.inside(root, full):
+            notes.append(f"{rel}: resolves outside the folder — refused")
             continue
         if rel not in allowed:
             notes.append(f"{rel}: was not in the code the board was shown — refused")
