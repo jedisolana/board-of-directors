@@ -30,6 +30,7 @@ from boardofdirectors import (
     cost,
     openai_api,
     patch,
+    recipes,
     redact,
     seats,
     server,
@@ -2435,6 +2436,183 @@ class TheDocumentationRuns(unittest.TestCase):
                     b = b.replace("~/Desktop/myproject", home)
                 with self.subTest(block=i, first_line=b.strip().splitlines()[0][:60]):
                     exec(compile(b, f"docs-example-{i}", "exec"), ns)
+
+
+class Recipes(unittest.TestCase):
+    """Presets are framings, not forks: each is one call into the same engine."""
+
+    def run_(self, fn, *a, **kw):
+        t = OfflineTransport()
+        s = fn(*a, transport=t, models=POOL, live_catalogue=False, **kw)
+        return s, t
+
+    def test_dream_is_a_competition_and_keeps_every_dream(self):
+        s, t = self.run_(recipes.dream, "a city that only exists while it is raining", size=4)
+        self.assertEqual(s.kind, "make")
+        self.assertEqual(len(s.answers), 4, "the point of dreaming as a board is keeping all of them")
+        self.assertTrue(s.decision)
+        first = next(p for _, p in t.calls if "THEME:" in p)
+        self.assertIn("ONE complete piece", first)
+        self.assertIn("Do the task", first)                 # wrapped by the competition prompt
+
+    def test_check_idea_is_a_jury_with_a_count(self):
+        s, t = self.run_(recipes.check_idea, "ship the dashboard first")
+        self.assertEqual(s.kind, "decide")
+        self.assertIn("FOR", s.tally)
+        first = next(p for _, p in t.calls if "IDEA:" in p)
+        self.assertIn("strongest objection", first)
+        self.assertIn("VOTE: FOR", first)                   # wrapped by the jury prompt
+
+    def test_review_asks_the_question_you_gave_it(self):
+        s, t = self.run_(recipes.review, "We move to Postgres.", ask="Is the reason stated?")
+        self.assertEqual(s.kind, "decide")
+        first = next(p for _, p in t.calls if "TEXT:" in p)
+        self.assertIn("Is the reason stated?", first)
+        self.assertIn("We move to Postgres.", first)
+
+    def test_audit_refuses_a_folder_with_a_secret_in_it(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        with open(os.path.join(d, "app.py"), "w", encoding="utf-8") as f:
+            f.write('KEY = "sk-or-v1-' + "a" * 64 + '"\n')
+        with self.assertRaises(redact.Refused):
+            self.run_(recipes.audit, d)
+        # the override has to be typed, and then it goes
+        s, t = self.run_(recipes.audit, d, send_anyway=True)
+        self.assertEqual(s.kind, "decide")
+        self.assertTrue(any("app.py" in p for _, p in t.calls), "the code never reached the board")
+
+    def test_audit_budget_follows_the_smallest_window_on_the_board(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        with open(os.path.join(d, "a.py"), "w", encoding="utf-8") as f:
+            f.write("x = 1\n")
+        small = [model("a/1:free", ctx=10_000), model("b/1:free", ctx=50_000), model("c/1:free", ctx=90_000)]
+        seen = {}
+        real = codebase.audit_message
+        codebase.audit_message = lambda sc, budget, ask="": seen.setdefault("budget", budget) and real(sc, budget, ask=ask)
+        try:
+            self.run_(recipes.audit, d, members=small)
+        finally:
+            codebase.audit_message = real
+        self.assertEqual(seen["budget"], 6_000, "every member must be able to read the same tree")
+
+    def test_every_recipe_passes_the_boards_knobs_through(self):
+        """A recipe that swallowed `members=` or `peer_review=` would be a second interface."""
+        s, _ = self.run_(recipes.check_idea, "x", members=POOL[:3], peer_review=False)
+        self.assertEqual([m["id"] for m in s.members], [m["id"] for m in POOL[:3]])
+        self.assertEqual(s.rankings, [])
+
+    def test_brainstorm_build_and_red_team_are_competitions(self):
+        for fn, arg, phrase in ((recipes.brainstorm, "x", "distinct ideas"),
+                                (recipes.build, "x", "no placeholders"),
+                                (recipes.red_team, "x", "Break this")):
+            with self.subTest(fn.__name__):
+                s, t = self.run_(fn, arg)
+                self.assertEqual(s.kind, "make")
+                self.assertTrue(any(phrase in p for _, p in t.calls), f"{fn.__name__} lost its framing")
+
+    def test_brainstorm_asks_for_the_number_you_gave(self):
+        _, t = self.run_(recipes.brainstorm, "x", ideas=7)
+        self.assertTrue(any("Produce 7 distinct" in p for _, p in t.calls))
+
+
+class TheSupplyChain(unittest.TestCase):
+    """A different model works each step and hands its output down the line."""
+
+    STEPS = ("outline it", "write it", "cut it by a third")
+
+    def test_each_station_is_a_different_family_and_the_output_travels(self):
+        t = OfflineTransport()
+        line = recipes.supply_chain(self.STEPS, material="audience: engineers",
+                                    transport=t, models=POOL, live_catalogue=False)
+        self.assertEqual(len(line.steps), 3)
+        self.assertEqual(len({x.model.split("/")[0] for x in line.steps}), 3, "a family worked twice")
+        prompts = [p for _, p in t.calls]
+        self.assertIn("audience: engineers", prompts[0])
+        self.assertIn(line.steps[0].text, prompts[1], "station 2 was not handed station 1's work")
+        self.assertIn(line.steps[1].text, prompts[2], "station 3 was not handed station 2's work")
+        self.assertEqual(line.result, line.steps[-1].text)
+        self.assertIsNone(line.broke_at)
+
+    def test_a_failed_station_stops_the_line_and_is_named(self):
+        """Nothing is glued together to look finished."""
+        members = POOL[:3]
+        t = OfflineTransport(fail={members[1]["id"]})
+        line = recipes.supply_chain(self.STEPS, transport=t, models=POOL, members=members,
+                                    live_catalogue=False)
+        self.assertEqual(len(line.steps), 2, "the line kept running past a broken station")
+        self.assertIsNone(line.result)
+        self.assertEqual(line.broke_at.model, members[1]["id"])
+        self.assertEqual(line.broke_at.step, "write it")
+
+    def test_more_steps_than_families_repeats_in_order(self):
+        t = OfflineTransport()
+        line = recipes.supply_chain(["a", "b", "c", "d", "e"], transport=t, models=POOL,
+                                    members=POOL[:2], live_catalogue=False)
+        self.assertEqual([x.model for x in line.steps],
+                         [POOL[0]["id"], POOL[1]["id"], POOL[0]["id"], POOL[1]["id"], POOL[0]["id"]])
+
+    def test_the_seam_guards_the_line_too(self):
+        with self.assertRaises(redact.Refused):
+            recipes.supply_chain(["x"], material="key: sk-or-v1-" + "a" * 64,
+                                 transport=OfflineTransport(), models=POOL, live_catalogue=False)
+
+
+class SendAnywayMeansIt(unittest.TestCase):
+    """The console's "I have looked at these. Send anyway." passed the server's check and was
+    refused again by the engine's own seam. Box ticked, refusal twice. Driven through the real
+    endpoint, because that is where it was broken."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
+        with open(os.path.join(self.folder, "app.py"), "w", encoding="utf-8") as f:
+            f.write('KEY = "sk-or-v1-' + "a" * 64 + '"\n')
+        self.srv = server._Server(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old
+        importlib.reload(config)
+
+    def post(self, path, body):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=60)
+        c.request("POST", path, json.dumps(body), {"Content-Type": "application/json"})
+        return json.loads(c.getresponse().read())
+
+    def test_the_board_refuses_by_default_and_goes_when_told(self):
+        base = {"offline": True, "mode": "board", "code_path": self.folder,
+                "messages": [{"role": "user", "content": "audit this"}]}
+        self.assertIn("refused", self.post("/api/chat", base))
+        r = self.post("/api/chat", {**base, "send_anyway": True})
+        self.assertNotIn("refused", r, "the override was ignored by the engine")
+        self.assertIn("answers", r)
+
+    def test_the_work_button_honours_it_too(self):
+        base = {"offline": True, "path": self.folder, "task": "tidy up"}
+        self.assertIn("refused", self.post("/api/work", base))
+        r = self.post("/api/work", {**base, "send_anyway": True})
+        self.assertNotIn("refused", r, "the override was ignored on the work path")
+        self.assertIn("changes", r)
+
+    def test_the_library_recipe_honours_it(self):
+        with self.assertRaises(redact.Refused):
+            recipes.audit(self.folder, transport=OfflineTransport(), models=POOL, live_catalogue=False)
+        s = recipes.audit(self.folder, send_anyway=True, transport=OfflineTransport(),
+                          models=POOL, live_catalogue=False)
+        self.assertTrue(s.answers)
 
 
 if __name__ == "__main__":

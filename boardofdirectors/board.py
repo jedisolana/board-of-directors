@@ -245,13 +245,15 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
         size: int = seats.DEFAULT_SEATS, minimum: int = 3, peer_review: bool = True,
         live_catalogue: bool = True, kind: str = "decide", on_event=None,
         members: list[dict] | None = None, allow_paid: bool = False,
-        tier: str | None = None, deadline: float = 90.0) -> Session:
-    """Run one board session. Raises `redact.Refused` before anything leaves the machine."""
+        tier: str | None = None, deadline: float = 90.0,
+        send_anyway: bool = False) -> Session:
+    """Run one board session. Raises `redact.Refused` before anything leaves the machine,
+    unless the caller has looked at the findings and says `send_anyway=True`."""
     return ask_in_context(question, prior=None, transport=transport, models=models, size=size,
                           minimum=minimum, peer_review=peer_review,
                           live_catalogue=live_catalogue, kind=kind, on_event=on_event,
                           members=members, allow_paid=allow_paid, tier=tier,
-                          deadline=deadline)
+                          deadline=deadline, send_anyway=send_anyway)
 
 
 def ask_in_context(question: str, *, prior: list[dict] | None = None,
@@ -260,7 +262,7 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    live_catalogue: bool = True, kind: str = "decide",
                    members: list[dict] | None = None, on_event=None,
                    allow_paid: bool = False, tier: str | None = None,
-                   deadline: float = 90.0) -> Session:
+                   deadline: float = 90.0, send_anyway: bool = False) -> Session:
     """A board session that picks up an existing conversation.
 
     This is what makes the mode switch worth having. You talk to ONE model for a while at one
@@ -273,7 +275,14 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     board turn would multiply what each later turn has to re-read, and a long conversation
     would price itself out of the free tier.
     """
-    redact.check(question)
+    # The seam is a wall, not a suggestion - but a person who has read the findings and typed
+    # the override has made a decision about their own data, and the engine has to be able to
+    # hear it. It could not: the console's "I have looked at these. Send anyway." passed the
+    # server's check and then died here, so the box was ticked and the refusal came back twice.
+    # Default False, and the word is the same one the console sends, so it cannot be set by
+    # accident from a stale flag with another name.
+    if not send_anyway:
+        redact.check(question)
     prior = prior or []
 
     if models is None:

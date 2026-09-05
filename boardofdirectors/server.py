@@ -295,7 +295,8 @@ def _board(payload: dict, on_event=None) -> dict:
                              members=members, minimum=int(payload.get("minimum", 3)),
                              peer_review=bool(payload.get("peer_review", True)),
                              kind=payload.get("kind", "decide"), on_event=on_event,
-                             allow_paid=paid_ok, tier=_tier(payload))
+                             allow_paid=paid_ok, tier=_tier(payload),
+                             send_anyway=bool(payload.get("send_anyway")))
     return {
         "mode": "board", "live": live, "kind": s.kind, "estimated_usd": est.usd,
         # the members the SESSION used, not the ones that were requested
@@ -599,7 +600,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 s_ = board.ask(msg, transport=transport, models=mods, members=members,
                                minimum=int(payload.get("minimum", 3)), kind="make",
                                peer_review=bool(payload.get("peer_review", True)),
-                               allow_paid=_paid_ok(payload), tier=_tier(payload))
+                               allow_paid=_paid_ok(payload), tier=_tier(payload),
+                               send_anyway=bool(payload.get("send_anyway")))
                 allowed = {f.rel for f in sc.files}
                 changes, notes = patch.parse(s_.decision or "", sc.root, allowed)
                 return self._json({

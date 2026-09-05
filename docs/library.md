@@ -299,6 +299,57 @@ codebase reasons differently from one that believes it saw all of it.
 
 ---
 
+## Recipes — the shapes people keep reaching for
+
+A recipe is a framing of the question plus the right kind of session, as one call. Nothing
+about the board changes underneath; each returns the same `Session` and takes the same
+keyword arguments as `board.ask`.
+
+```python
+from boardofdirectors import recipes
+
+# Several models from several companies each dream on one theme. You keep ALL of them -
+# session.answers is six dreams - and the chair's decision is the one the board thought best.
+night = recipes.dream("a city that only exists while it is raining", size=4)
+for a in night.answers:
+    print(a.model, "-", a.text[:60])
+
+# An idea-checking team: positions, a vote count, the strongest dissent kept in.
+verdict = recipes.check_idea("release the dashboard before the library is documented")
+verdict.tally["FOR"], verdict.tally["AGAINST"], verdict.decision
+
+# A jury over a document before it goes out.
+recipes.review("We are moving to Postgres next quarter.", ask="Is this decision explained?")
+
+# An audit team over a folder. Refuses a folder with secrets in it, like the console does.
+recipes.audit("~/Desktop/myproject", ask="Where would this lose data?")
+
+# An idea-making team: every member brings five, you keep all thirty.
+recipes.brainstorm("ways to make a rate limit visible without a counter", ideas=5)
+
+# A code-making team: each writes it, the ranking judges which attempts actually do it.
+recipes.build("a function that merges two sorted lists without duplicates")
+
+# Six attackers, one plan. The ranking rewards the most damaging attack, not the politest.
+recipes.red_team("we release on Friday and monitor over the weekend")
+
+# The supply chain: a DIFFERENT model works each step, handing its output down the line.
+# Not a board - nobody votes. An assembly line of companies.
+line = recipes.supply_chain(
+    ["outline a short post about why juries beat single judges",
+     "write the post from the outline",
+     "cut it by a third without losing a point"],
+    material="audience: people who already use one AI model and think that is enough")
+for link in line.steps:
+    print(link.model, "did:", link.step)
+line.result          # what came off the end, or None if a station failed (see line.broke_at)
+```
+
+`dream`, `brainstorm`, `build` and `red_team` are competitions (`kind="make"`); `check_idea`,
+`review` and `audit` are juries (`kind="decide"`); `supply_chain` is neither — a relay. Use them
+as they are, or read them as worked examples of how to frame a question for the board — they
+are short on purpose.
+
 ## Sessions
 
 ```python
@@ -318,6 +369,7 @@ print(sessions.as_markdown(sessions.load(sid)))   # minutes, with the dissent in
 it inside the repo. Override with `BOARD_HOME`, which also disables the migration from an
 earlier install: setting it is a request for *that* directory, not an invitation to import
 someone else's state.
+
 
 ## Where it looks for projects
 

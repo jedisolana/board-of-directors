@@ -31,6 +31,8 @@ opens a console in your browser, served from your own machine.
 > offline stub, so anyone can reproduce them without a key or a request. Nothing is a mock-up.
 
 Using it from your own code? → **[docs/library.md](docs/library.md)**
+Eight ready-made shapes are in there too — `recipes.dream`, `brainstorm`, `build`, `red_team`,
+`check_idea`, `review`, `audit`, and `supply_chain`, where a different model works each step.
 
 Already have a bot? It speaks OpenAI — point any client at `http://127.0.0.1:8420/v1` and ask
 for the model **`board`**. A whole board's decision comes back in the shape your client

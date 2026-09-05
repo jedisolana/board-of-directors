@@ -29,6 +29,16 @@ First release.
 - The board and saved-sessions panels fold away, so the model list can take the whole pane
   while you browse. The fold is remembered.
 
+### Recipes
+- Eight presets on top of the same engine, one call each. Competitions: `dream` (several
+  companies' models each dream on a theme; you keep all of them), `brainstorm` (an idea-making
+  team), `build` (a code-making team), `red_team` (six attackers, one plan). Juries:
+  `check_idea`, `review`, `audit` (over a folder, refusing one that holds secrets). And
+  `supply_chain` — not a board at all: a different model works each step and hands down the line.
+- **"Send anyway" now means it.** The console's override for a folder with secrets passed the
+  server and was refused again by the engine's own seam. The engine takes the override as an
+  explicit argument; the server and the recipes pass it through.
+
 ### Reading code
 - Point it at a folder; it packs the files into one message and asks one model or the board.
   A **loader, not a harness** — you choose what it reads.
