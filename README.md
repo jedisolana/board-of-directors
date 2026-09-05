@@ -9,15 +9,16 @@ OpenRouter's free tier, so it costs nothing to try.
 ![The console](docs/fig-console.png)
 
 ```bash
-python3 -m boardofdirectors.cli
+python3 -m boardofdirectors.cli      # from a clone
+pip install -e . && board            # or install it and get the `board` command
 ```
 
-From a clone of this repo, that's the whole thing. No dependencies, no build step, no key
-required to look around — it opens a console in your browser, served from your own machine.
+That's the whole thing. No dependencies, no build step, no key required to look around — it opens a console in your browser, served from your own machine.
 
-> The two screenshots below the interface are from **real sessions against live free models**,
-> not mock-ups. The interface shot above is driven by the offline stub so it costs nothing to
-> reproduce.
+> **On the screenshots.** The two under *Here it is working* are real sessions against live
+> free models — the text in them is what those models actually said. The interface shots are
+> driven by the built-in offline stub, so anyone can reproduce them without a key or a request.
+> Nothing here is a mock-up.
 
 ---
 
