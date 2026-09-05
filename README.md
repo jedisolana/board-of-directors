@@ -304,6 +304,15 @@ OpenRouter ships. They are different rankings — a coding specialist can sit mi
 and dead last on reasoning. Hover for all three indices including agentic, which says how a
 model behaves inside a harness.
 
+Every paid model carries its price on its own line — `$5/M in · $25/M out` — and a **cheapest**
+sort appears once paid models are in the list.
+
+![Prices on every row](docs/fig-prices.png)
+
+The right-hand figure is what **one call actually costs**, in cents, because `$/M` is not a
+number anyone can feel. It runs from `0.0044¢` to `60¢` across the catalogue — a four-order
+spread that decides whether a five-seat board costs nothing or costs five dollars.
+
 With paid on there are over 400 seatable models, so there is a search box. Type a vendor, a
 family or part of an id and the header says how many matched.
 

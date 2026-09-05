@@ -73,6 +73,12 @@
        background:var(--panel2);color:var(--dim);margin-left:5px;vertical-align:1px}
   .tagfree{color:var(--good)}
   .tagpaid{color:var(--warn)}
+  /* Its own line. Appended to the meta line it was the first thing the ellipsis ate. */
+  .price{font-family:var(--mono);font-size:10.5px;color:var(--warn);margin-top:2px;
+         white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .price span{color:var(--dimmer)}
+  .price.free{color:var(--good)}
+  .price .per{margin-left:6px}
   .cost{color:var(--warn);font-size:11.5px;font-family:var(--mono);margin-left:10px}
   .cost.free{color:var(--dimmer)}
   .cost.over{color:var(--bad);font-weight:600}
@@ -230,6 +236,7 @@
     <div class="sorts">
       <button class="sort rank on" data-k="coding">best at coding <span class="n"></span></button>
       <button class="sort rank" data-k="thinking">best at thinking <span class="n"></span></button>
+      <button class="sort rank" data-k="price" id="rPrice" hidden>cheapest</button>
     </div>
     <div style="padding:8px 12px 4px">
       <input id="mSearch" placeholder="search 400+ models..." autocomplete="off"
@@ -372,6 +379,26 @@ function pretty(m){
 }
 const byId = id => (S && S.models.find(m => m.id === id)) || {id};
 
+// $/M is not a number anyone can feel. This is what ONE board call actually costs, on the
+// same token assumptions the estimator uses, so the row and the total agree.
+const CALL_IN = 1200, CALL_OUT = 700;
+const cost1k = m => m.free ? 0
+  : (CALL_IN/1e6)*(m.price_in||0) + (CALL_OUT/1e6)*(m.price_out||0);
+
+// A call costs fractions of a cent, so fixed decimals collapse half the catalogue onto
+// "$0.0000". Cents with two significant figures keeps them distinguishable, and cents is a
+// unit people can feel in a way that $0.000047 is not.
+function cents(usd){
+  if(!usd) return "free";
+  const c = usd * 100;
+  if(c >= 10) return c.toFixed(0) + "¢";
+  if(c >= 1)  return c.toFixed(1) + "¢";
+  if(c >= 0.01) return c.toFixed(2) + "¢";
+  // Do not collapse the cheap end to "<0.01¢": three hundred models land there and the
+  // sort becomes a list of identical labels. Two significant figures keeps them apart.
+  return c.toPrecision(2).replace(/0+$/, "").replace(/\.$/, "") + "¢";
+}
+
 // The tabs show two, but all three indices are on the row's tooltip -- agentic is the one
 // that says how well a model works inside a harness, and it is worth a hover.
 function scoreTip(m){
@@ -464,7 +491,9 @@ function paintModels(){
   const box = $("#models"); box.innerHTML = "";
   // Unmeasured models sort last and stay blank. A missing score is "never measured",
   // not zero -- filling it in would rank a model bottom for a fact nobody established.
-  const sc = m => sortKey === "size" ? (m.context_length || 0) : (m.score || {})[sortKey];
+  const sc = m => sortKey === "size" ? (m.context_length || 0)
+                : sortKey === "price" ? (m.free ? 0 : cost1k(m))
+                : (m.score || {})[sortKey];
   // With 400+ models a scroller is not a way to find one. The list is 20,000 pixels tall in
   // a 484-pixel panel, so without a filter you see ten and scroll for the rest.
   const q = ($("#mSearch").value || "").trim().toLowerCase();
@@ -477,7 +506,7 @@ function paintModels(){
     if(x == null && y == null) return a.id.localeCompare(b.id);
     if(x == null) return 1;
     if(y == null) return -1;
-    return y - x;
+    return sortKey === "price" ? x - y : y - x;   // cheapest ASCENDING, scores descending
   });
   // OpenRouter's scores are sparse and they MOVE - intelligence_index was populated for
   // most free models this morning and null for most of them by evening. So the list never
@@ -487,8 +516,16 @@ function paintModels(){
   document.querySelectorAll(".sort .n").forEach(el => {
     const k = el.parentElement.dataset.k;
     const n = S.models.filter(m => m.seatable && (m.score||{})[k] != null).length;
-    el.textContent = n ? `(${n})` : "(none)";
+    if(k !== "price") el.textContent = n ? `(${n})` : "(none)";
   });
+  // cheapest only means anything once paid models are in the list
+  const paidVisible = (S.model_tier || "free") !== "free";
+  $("#rPrice").hidden = !paidVisible;
+  if(!paidVisible && sortKey === "price"){
+    sortKey = "coding";
+    document.querySelectorAll(".rank").forEach(x =>
+      x.classList.toggle("on", x.dataset.k === "coding"));
+  }
   let brokeOut = false;
   for(const m of list){
     if(!brokeOut && sc(m) == null){
@@ -509,13 +546,16 @@ function paintModels(){
                        ${m.seatable?"":"disabled"} title="seat on the board">
       <div style="min-width:0;flex:1">
         <div class="id">${esc(p.name)}${m.json?'<span class="tag">json</span>':''}</div>
-        <div class="meta">${esc(p.vendor)} · reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}`
-      + (m.free ? ` · <span class="tagfree">free</span>`
-                : ` · <span class="tagpaid">$${m.price_in}/$${m.price_out} per M</span>`) + `</div>
+        <div class="meta">${esc(p.vendor)} · ${k(m.context_length)} in · ${k(m.max_completion_tokens)} out</div>
+        ${m.free
+          ? `<div class="price free">free</div>`
+          : `<div class="price">$${m.price_in}<span>/M in</span> · $${m.price_out}<span>/M out</span></div>`}
       </div>
       <div class="score ${sc(m)==null?"none":""}" title="${scoreTip(m)}">
-        <b>${sortKey==="size" ? k(m.context_length) : (sc(m)==null ? "—" : sc(m))}</b>
-        ${sortKey==="size" ? "" : `<span>${esc(sortKey)}</span>`}
+        <b>${sortKey==="size" ? k(m.context_length)
+             : sortKey==="price" ? cents(cost1k(m))
+             : (sc(m)==null ? "—" : sc(m))}</b>
+        ${sortKey==="size" ? "" : `<span>${sortKey==="price" ? "a call" : esc(sortKey)}</span>`}
       </div>`;
     row.querySelector("input").onclick = e => {
       e.stopPropagation();

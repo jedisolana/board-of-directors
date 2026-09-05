@@ -65,6 +65,7 @@ First release.
 
 ### Three model tiers
 - A **search box**, because 400 models in a scroller is not a way to find one.
+- Every paid model shows its price, plus what one call costs in cents, and a **cheapest** sort.
 - **free only · paid only · both.** Paid-only is a real want: somebody paying for quality may
   not want free models on the board at all.
 - An unrecognised tier falls back to free — a typo must not silently widen what may be spent.
