@@ -201,6 +201,17 @@
   .scan b{color:var(--ink)}
   .scan .files{max-height:120px;overflow-y:auto;margin-top:7px;font-family:var(--mono);
                font-size:10.5px;color:var(--dimmer);line-height:1.7}
+  /* A proposed change, not an applied one. Nothing is written until the button is clicked. */
+  .patch{border:1px solid var(--line);border-radius:8px;margin-bottom:10px;overflow:hidden}
+  .patch h4{margin:0;padding:8px 12px;background:var(--panel);font:600 12.5px var(--mono);
+            display:flex;align-items:center;gap:10px}
+  .patch h4 .plus{color:var(--good)} .patch h4 .minus{color:var(--bad)}
+  .patch h4 button{margin-left:auto;font-size:11px;padding:3px 10px}
+  .patch pre{margin:0;padding:10px 12px;background:var(--bg);font:11px/1.5 var(--mono);
+             overflow-x:auto;max-height:340px}
+  .patch pre .a{color:var(--good)} .patch pre .r{color:var(--bad)}
+  .patch pre .h{color:var(--accent)}
+  .patch.done h4{background:rgba(63,185,80,.12)}
   .thinking{color:var(--dim);font-size:12.5px;font-family:var(--mono)}
   .thinking::after{content:"";animation:dots 1.2s steps(4,end) infinite}
   @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
@@ -298,11 +309,14 @@
   <div id="projects" class="projects"></div>
   <input id="codePath" placeholder="...or type a folder path, e.g. ~/Desktop/myproject"
          autocomplete="off" style="font:12.5px var(--mono)">
+  <input id="codeTask" placeholder="...or describe a change to make, and the board will write it"
+         autocomplete="off" style="margin-top:2px">
   <div id="scanOut" class="grow"></div>
   <div class="actions">
     <button id="codeCancel">cancel</button>
     <button class="primary" id="codeOne" disabled>ask one model</button>
     <button class="primary" id="codeBoard" disabled>ask the board</button>
+    <button class="primary" id="codeWork" disabled hidden>write the change</button>
   </div>
 </dialog>
 
@@ -1067,6 +1081,9 @@ async function doScan(path){
   $("#scanOut").innerHTML = h;
   const ok = !r.findings.length;
   $("#codeOne").disabled = $("#codeBoard").disabled = !ok;
+  const task = $("#codeTask").value.trim();
+  $("#codeWork").hidden = !task;
+  $("#codeWork").disabled = !ok || !task;
   const box = $("#anyway");
   if(box) box.onchange = e => {
     sendAnyway = e.target.checked;
@@ -1118,10 +1135,92 @@ async function sendCode(asBoard){
   busy = false; $("#send").disabled = false;
 }
 
+// PROPOSE, then apply one file at a time on a click. The model never writes: it returns whole
+// files, the server diffs them against disk, and this shows the diff. Nothing changes until a
+// person presses a button, and the previous contents are kept before every write.
+function colourDiff(d){
+  return d.split("\n").map(l =>
+    l.startsWith("+++") || l.startsWith("---") ? `<span class="h">${esc(l)}</span>`
+    : l.startsWith("@@") ? `<span class="h">${esc(l)}</span>`
+    : l.startsWith("+") ? `<span class="a">${esc(l)}</span>`
+    : l.startsWith("-") ? `<span class="r">${esc(l)}</span>` : esc(l)).join("\n");
+}
+
+async function workCode(){
+  if(!scanned) return;
+  const task = $("#codeTask").value.trim();
+  if(!task) return;
+  $("#dCode").close();
+  $("#empty")?.remove();
+  const name = scanned.root.split("/").pop();
+  addYou(`In ${name}: ${task}`);
+  busy = true; $("#send").disabled = true;
+  const wait = document.createElement("div");
+  wait.className = "turn";
+  wait.innerHTML = `<div class="thinking">the board is writing the change to ${esc(name)}</div>`;
+  $("#thread").appendChild(wait); scroll();
+
+  const r = await api("/api/work", {path: scanned.root, task, board,
+                                    allow_paid: !!(S && S.allow_paid), tier: S && S.model_tier,
+                                    send_anyway: sendAnyway});
+  wait.remove();
+  if(r.refused){
+    note("Refused to send", "Nothing left this machine:<ul>"
+       + r.refused.map(f=>`<li>${esc(f)}</li>`).join("") + "</ul>", "bad");
+  } else if(r.error){ note("Error", esc(r.error), "bad"); }
+  else if(r.no_quorum){ note("No quorum", esc(r.no_quorum), "bad"); }
+  else if(!r.changes.length){
+    note("No change proposed", (r.notes || []).map(esc).join("<br>")
+       || "The board did not return any file it wanted to change.", "warn");
+  } else {
+    const d = document.createElement("div");
+    d.className = "turn";
+    d.innerHTML = `<div class="who">board · ${r.answered.length} answered · chaired by `
+      + `${esc(label(r.chair))} · ${r.calls} requests · <b>nothing written yet</b></div>`;
+    for(const c of r.changes){
+      const box = document.createElement("div");
+      box.className = "patch";
+      box.innerHTML = `<h4>${esc(c.rel)}
+          <span class="plus">+${c.added}</span><span class="minus">-${c.removed}</span>
+          <button data-rel="${esc(c.rel)}">apply</button></h4>
+        <pre>${colourDiff(c.diff)}</pre>`;
+      box.querySelector("button").onclick = async e => {
+        const btn = e.target;
+        btn.disabled = true; btn.textContent = "applying...";
+        const res = await api("/api/apply", {root: r.root, rel: c.rel, new: c.new, was: c.was});
+        if(res.error){ btn.disabled = false; btn.textContent = "apply";
+                       note("Not applied", esc(res.error), "bad"); return; }
+        box.classList.add("done"); btn.textContent = "applied";
+        note("Applied " + c.rel, `The previous contents are in <code>${esc(res.backup)}</code>.`, "warn");
+      };
+      d.appendChild(box);
+    }
+    if(r.notes && r.notes.length){
+      const n = document.createElement("div");
+      n.className = "note warn";
+      n.innerHTML = "<b>Not offered</b><ul>" + r.notes.map(x=>`<li>${esc(x)}</li>`).join("") + "</ul>";
+      d.appendChild(n);
+    }
+    $("#thread").appendChild(d); scroll();
+    turns.push({role:"user", content:`In ${name}: ${task}`});
+    turns.push({role:"assistant", model:r.chair,
+                content:`Proposed changes to ${r.changes.map(c=>c.rel).join(", ")}.`});
+    await persist();
+  }
+  busy = false; $("#send").disabled = false;
+}
+
 $("#bCode").onclick = () => { loadProjects(); $("#scanOut").innerHTML = "";
-  $("#codeOne").disabled = $("#codeBoard").disabled = true; $("#dCode").showModal(); };
+  $("#codeOne").disabled = $("#codeBoard").disabled = true;
+  $("#codeWork").hidden = true; $("#codeTask").value = ""; $("#dCode").showModal(); };
 $("#codeCancel").onclick = () => $("#dCode").close();
 $("#codePath").onkeydown = e => { if(e.key === "Enter"){ e.preventDefault(); doScan(e.target.value); } };
+$("#codeTask").oninput = () => {
+  const on = !!$("#codeTask").value.trim();
+  $("#codeWork").hidden = !on;
+  $("#codeWork").disabled = !on || $("#codeBoard").disabled;
+};
+$("#codeWork").onclick = workCode;
 $("#codeOne").onclick = () => sendCode(false);
 $("#codeBoard").onclick = () => sendCode(true);
 

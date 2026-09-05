@@ -152,6 +152,28 @@ what they are worst at. It also costs one request instead of ten.
 refused, with the file named and the secret masked, and an explicit per-send override for the
 fixtures every real repo has.
 
+## And it can write the change
+
+Auditing tells you what is wrong. Type a task into the same panel — *"fix the subtraction bug
+in add()"* — and the board writes the fix instead, in **make** mode: every member attempts it,
+the ranking judges whether they actually did it, and the chair delivers the best attempt.
+
+You get a **diff per file, with an apply button.** Nothing is written until you press it.
+
+**The model never touches your disk.** It returns whole files; the server diffs them against
+what is there and shows you. Whole files rather than unified diffs on purpose — a model that
+miscounts a hunk header produces a patch that either fails to apply or applies to the *wrong
+lines*, and the second is far worse.
+
+Four guards, each for a failure that would otherwise be silent:
+
+| | |
+|---|---|
+| a path that escapes the folder | refused — and refused, not *normalised*: `.lstrip("./")` strips a set of characters rather than a prefix, and turned `../../.ssh/config` into `ssh/config` |
+| a file the board never saw | refused — it cannot be proposing an informed change to it |
+| a file that moved since the scan | refused — the proposal was written against text that is no longer there |
+| the previous contents | kept in `~/.board-of-directors/backups` before every write |
+
 ## It keeps what the board said
 
 Sessions are saved to your machine and reopen **as they happened** — every member's answer,

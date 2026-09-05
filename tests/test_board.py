@@ -21,6 +21,7 @@ from boardofdirectors import (
     catalogue,
     config,
     cost,
+    patch,
     redact,
     seats,
     sessions,
@@ -1141,6 +1142,97 @@ class ResettingTheCount(unittest.TestCase):
         usage.reset_today()
         self.assertEqual(usage.status(0).calls, 0)
         self.assertEqual(len([r for r in usage._load()["days"] if r == "2026-09-01"]), 1)
+
+
+class ProposedChanges(unittest.TestCase):
+    """The first thing here that can change your files, so the safe direction is doing nothing.
+
+    The model never writes. It returns whole files; the server diffs them against disk and
+    shows you; a person clicks apply, one file at a time, and the previous contents are kept.
+    """
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        with open(os.path.join(self.root, "calc.py"), "w") as f:
+            f.write("def add(a, b):\n    return a - b\n")
+        os.makedirs(os.path.join(self.root, "sub"))
+        with open(os.path.join(self.root, "sub", "b.py"), "w") as f:
+            f.write("x = 1\n")
+        self.allowed = {"calc.py", "sub/b.py"}
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_a_whole_file_is_parsed_and_diffed(self):
+        answer = "----- calc.py -----\ndef add(a, b):\n    return a + b\n"
+        ch, _ = patch.parse(answer, self.root, self.allowed)
+        self.assertEqual([c.rel for c in ch], ["calc.py"])
+        self.assertEqual((ch[0].added, ch[0].removed), (1, 1))
+        self.assertIn("+    return a + b", ch[0].diff())
+
+    def test_a_fenced_block_is_unwrapped(self):
+        """Models wrap the contents in backticks about half the time."""
+        answer = "----- calc.py -----\n```python\ndef add(a, b):\n    return a + b\n```\n"
+        ch, _ = patch.parse(answer, self.root, self.allowed)
+        self.assertEqual(len(ch), 1)
+        self.assertNotIn("```", ch[0].new)
+
+    def test_traversal_is_refused_not_normalised(self):
+        """`.lstrip("./")` strips a SET of characters, not a prefix: it turned
+        "../../.ssh/config" into "ssh/config", quietly rewriting a traversal attempt into a
+        plausible relative path that an allowlist might have accepted."""
+        answer = ("----- ../../.ssh/config -----\npwned\n"
+                  "----- /etc/passwd -----\npwned\n"
+                  "----- sub/../calc.py -----\npwned\n")
+        ch, notes = patch.parse(answer, self.root, self.allowed | {"ssh/config"})
+        self.assertEqual(ch, [])
+        self.assertEqual(len(notes), 3)
+        for n in notes:
+            self.assertIn("escapes", n)
+
+    def test_a_file_the_board_never_saw_is_refused(self):
+        answer = "----- secrets.env -----\nAPI_KEY=x\n"
+        ch, notes = patch.parse(answer, self.root, self.allowed)
+        self.assertEqual(ch, [])
+        self.assertIn("was not in the code", notes[0])
+
+    def test_an_unchanged_file_is_not_offered(self):
+        answer = "----- sub/b.py -----\nx = 1\n"
+        ch, notes = patch.parse(answer, self.root, self.allowed)
+        self.assertEqual(ch, [])
+        self.assertIn("unchanged", notes[0])
+
+    def test_applying_writes_and_keeps_the_old_contents(self):
+        ch, _ = patch.parse("----- calc.py -----\ndef add(a, b):\n    return a + b\n",
+                            self.root, self.allowed)
+        backups = os.path.join(self.root, ".bak")
+        patch.apply(ch[0], expect_digest=patch.digest(ch[0].old), backup_dir=backups)
+        with open(ch[0].path) as f:
+            self.assertIn("a + b", f.read())
+        kept = os.listdir(backups)
+        self.assertEqual(len(kept), 1)
+        with open(os.path.join(backups, kept[0])) as f:
+            self.assertIn("a - b", f.read(), "the previous contents must be recoverable")
+
+    def test_a_file_that_moved_since_the_board_read_it_is_refused(self):
+        """The proposal was written against text that is no longer there. Applying it would
+        silently discard whatever happened in between."""
+        ch, _ = patch.parse("----- calc.py -----\ndef add(a, b):\n    return a + b\n",
+                            self.root, self.allowed)
+        stale = patch.digest(ch[0].old)
+        with open(ch[0].path, "w") as f:
+            f.write("someone else edited this\n")
+        with self.assertRaises(patch.Rejected) as e:
+            patch.apply(ch[0], expect_digest=stale)
+        self.assertIn("changed on disk", str(e.exception))
+
+    def test_parsing_alone_writes_nothing(self):
+        target = os.path.join(self.root, "calc.py")
+        with open(target) as f:
+            before = f.read()
+        patch.parse("----- calc.py -----\ntotally different\n", self.root, self.allowed)
+        with open(target) as f:
+            self.assertEqual(f.read(), before)
 
 
 class SavedSessions(unittest.TestCase):

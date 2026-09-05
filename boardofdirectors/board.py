@@ -198,11 +198,14 @@ def _blind(answers: list[Answer]) -> tuple[str, dict[str, str]]:
 
 def ask(question: str, *, transport: Transport | None = None, models: list[dict] | None = None,
         size: int = 5, minimum: int = 3, peer_review: bool = True,
-        live_catalogue: bool = True, kind: str = "decide", on_event=None) -> Session:
+        live_catalogue: bool = True, kind: str = "decide", on_event=None,
+        members: list[dict] | None = None, allow_paid: bool = False,
+        tier: str | None = None) -> Session:
     """Run one board session. Raises `redact.Refused` before anything leaves the machine."""
     return ask_in_context(question, prior=None, transport=transport, models=models, size=size,
                           minimum=minimum, peer_review=peer_review,
-                          live_catalogue=live_catalogue, kind=kind, on_event=on_event)
+                          live_catalogue=live_catalogue, kind=kind, on_event=on_event,
+                          members=members, allow_paid=allow_paid, tier=tier)
 
 
 def ask_in_context(question: str, *, prior: list[dict] | None = None,

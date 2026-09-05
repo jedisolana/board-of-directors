@@ -30,6 +30,7 @@ from . import (
     codebase,
     config,
     cost,
+    patch,
     redact,
     seats,
     sessions,
@@ -471,6 +472,52 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/usage/reset":
                 was = usage.reset_today()
                 return self._json({"discarded": was, **_state()})
+            if self.path == "/api/work":
+                # Propose changes to a folder. NOTHING is written here - this returns diffs.
+                sc = codebase.scan(payload["path"])
+                if sc.findings and not payload.get("send_anyway"):
+                    raise redact.Refused([redact.Finding("code scan", r, w.split(": ")[-1])
+                                          for r, w in sc.findings[:12]])
+                mods = _models()
+                want = payload.get("board") or config.board() or []
+                by_id = {m["id"]: m for m in mods}
+                members = [by_id[i] for i in want if i in by_id] or seats.seat(
+                    mods, size=int(payload.get("size", 5)), tier=_tier(payload))
+                if not _paid_ok(payload):
+                    members = [m for m in members if m.get("free")]
+                smallest = min((m.get("context_length") or 0) for m in members) or None
+                body = codebase.pack(sc, int(smallest * 0.6) if smallest else None)
+                msg = patch.WRITE_PROMPT.format(task=payload.get("task", ""), code=body)
+                transport, _ = _transport(payload.get("offline", False))
+                s_ = board.ask(msg, transport=transport, models=mods, members=members,
+                               minimum=int(payload.get("minimum", 3)), kind="make",
+                               peer_review=bool(payload.get("peer_review", True)),
+                               allow_paid=_paid_ok(payload), tier=_tier(payload))
+                allowed = {f.rel for f in sc.files}
+                changes, notes = patch.parse(s_.decision or "", sc.root, allowed)
+                return self._json({
+                    "root": sc.root, "calls": s_.requests,
+                    "no_quorum": s_.no_quorum, "notes": notes,
+                    "answered": [a.model for a in s_.answers],
+                    "failures": [{"model": f.model, "reason": f.reason} for f in s_.failures],
+                    "chair": s_.chair_model["id"],
+                    "changes": [{"rel": c.rel, "diff": c.diff(), "added": c.added,
+                                 "removed": c.removed, "new": c.new,
+                                 "was": patch.digest(c.old)} for c in changes],
+                })
+            if self.path == "/api/apply":
+                # The ONLY place a file is written, and only one file per call.
+                root = os.path.abspath(os.path.expanduser(payload["root"]))
+                ch = patch.Change(rel=payload["rel"],
+                                  path=os.path.join(root, payload["rel"]),
+                                  new=payload["new"])
+                try:
+                    patch.apply(ch, expect_digest=payload.get("was"),
+                                backup_dir=os.path.join(config.HOME, "backups"))
+                except (patch.Rejected, OSError) as e:
+                    return self._json({"error": str(e)})
+                return self._json({"applied": ch.rel,
+                                   "backup": os.path.join(config.HOME, "backups")})
             if self.path == "/api/scan":
                 sc = codebase.scan(payload["path"])
                 return self._json(sc.summary())

@@ -87,6 +87,12 @@ First release.
   wrong is not repaired by counting correctly afterwards.
 - The ledger is never clamped; going past the allowance is said in words, not hidden.
 
+### Writing changes
+- Describe a task and the board **writes the fix**, returned as a diff per file with an apply
+  button. Nothing is written until you press it, one file at a time.
+- Path traversal, files the board never saw, and files that moved since the scan are all
+  refused. The previous contents are kept before every write.
+
 ### Sessions
 - Conversations are saved locally and reopen with the **whole proceeding** — every member's
   answer, every failure and its reason, the chair — not just the verdict.
