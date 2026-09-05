@@ -23,7 +23,19 @@ import threading
 import time
 import webbrowser
 
-from . import board, budget, catalogue, codebase, config, redact, seats, sessions, truecount, usage
+from . import (
+    board,
+    budget,
+    catalogue,
+    codebase,
+    config,
+    cost,
+    redact,
+    seats,
+    sessions,
+    truecount,
+    usage,
+)
 from .transport import OfflineTransport, OpenRouterTransport
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -86,20 +98,40 @@ def _true_calls() -> tuple[int | None, str]:
     return n, why
 
 
+CREDITS_TTL = 120
+
+
+def _credits() -> dict | None:
+    key, _ = config.api_key()
+    if not key:
+        return None
+    if time.time() - _CACHE.get("cr_at", 0) < CREDITS_TTL and "cr" in _CACHE:
+        return _CACHE["cr"]
+    c = config.credits(key)
+    _CACHE["cr"], _CACHE["cr_at"] = c, time.time()
+    return c
+
+
 def _state() -> dict:
     key, where = config.api_key()
     models = _models()
     true_n, true_why = _true_calls()
     st = usage.status(true_calls=true_n)
     saved = config.board() or []
-    seatable = catalogue.deliberative(models)
+    paid_on = config.allow_paid()
+    seatable = catalogue.deliberative(models, allow_paid=paid_on)
     return {
         "key_set": bool(key), "key_masked": config.mask(key), "key_from": where,
         "catalogue": {"origin": _CACHE.get("origin"), "captured": _CACHE.get("captured"),
                       "free": len(models), "seatable": len(seatable),
                       "families": sorted({m["family"] for m in seatable})},
+        "allow_paid": paid_on,
+        "credits": _credits(),
+        "spend_cap": config.spend_cap(),
         "models": [{**m, "json": catalogue.speaks_json(m),
-                    "seatable": any(x["id"] == m["id"] for x in seatable)} for m in models],
+                    "seatable": any(x["id"] == m["id"] for x in seatable)}
+                   for m in models
+                   if m.get("free") or paid_on],
         "board": saved,
         "tier_source": config.tier_source(),
         "build": build_stamp(),
@@ -160,18 +192,53 @@ def _single(payload: dict) -> dict:
     return {"mode": "single", "model": mid, "text": r.text, "calls": 1, "live": live}
 
 
+def _paid_ok(payload: dict) -> bool:
+    """Paid seats need BOTH the stored permission and this request saying so.
+
+    The setting alone is not consent to spend on a particular session. A stored flag from last
+    week must not be what decides that today's question costs money, so the browser has to ask
+    for it every time and the server has to have been told it is allowed at all.
+    """
+    return bool(config.allow_paid()) and bool(payload.get("allow_paid"))
+
+
 def _board(payload: dict, on_event=None) -> dict:
     """The whole board, on this turn only, carrying the conversation so far."""
     models = _models()
+    paid_ok = _paid_ok(payload)
     want = payload.get("board") or config.board() or []
     by_id = {m["id"]: m for m in models}
     members = [by_id[i] for i in want if i in by_id]
+    if not paid_ok:
+        # A chosen board can contain paid models from when the permission WAS on. Dropping
+        # them is right: the alternative is charging for a session the caller did not consent
+        # to on this send, which is the one mistake here that costs real money.
+        blocked = [m["id"] for m in members if not m.get("free")]
+        members = [m for m in members if m.get("free")]
+        if blocked:
+            return {"error": "paid seats are not allowed on this send: "
+                             + ", ".join(blocked) + ". Turn on paid models to include them."}
     if not members:
-        members = seats.seat(models, size=int(payload.get("size", 5)))
+        members = seats.seat(models, size=int(payload.get("size", 5)), allow_paid=paid_ok)
     try:
         seats.quorum(members, int(payload.get("minimum", 3)))
     except seats.NoQuorum as e:
         return {"error": str(e)}
+
+    # Cost is checked BEFORE anything is sent. A cap is a wall.
+    try:
+        chair_guess = seats.chair(models, members, allow_paid=paid_ok)
+    except seats.NoQuorum:
+        chair_guess = None
+    try:
+        est = cost.session(members, chair_guess,
+                           peer_review=bool(payload.get("peer_review", True)))
+    except cost.Unpriced as e:
+        return {"error": f"cannot price this board: {e}"}
+    cap = config.spend_cap()
+    if cost.over_cap(est, cap):
+        return {"error": f"this session would cost {est.human()}, over your "
+                         f"${cap:,.2f} cap. Raise the cap or seat cheaper models."}
 
     transport, live = _transport(payload.get("offline", False))
     history = list(payload.get("messages") or [])
@@ -188,9 +255,10 @@ def _board(payload: dict, on_event=None) -> dict:
     s = board.ask_in_context(question, prior=prior, transport=transport, models=models,
                              members=members, minimum=int(payload.get("minimum", 3)),
                              peer_review=bool(payload.get("peer_review", True)),
-                             kind=payload.get("kind", "decide"), on_event=on_event)
+                             kind=payload.get("kind", "decide"), on_event=on_event,
+                             allow_paid=paid_ok)
     return {
-        "mode": "board", "live": live, "kind": s.kind,
+        "mode": "board", "live": live, "kind": s.kind, "estimated_usd": est.usd,
         # the members the SESSION used, not the ones that were requested
         "members": [m["id"] for m in s.members],
         "chair": s.chair_model["id"],
@@ -326,6 +394,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"error": "no such session"})
                 return self._json({"markdown": sessions.as_markdown(doc),
                                    "filename": _slug(doc.get("title", "session")) + ".md"})
+            if self.path == "/api/paid":
+                if "on" in payload:
+                    config.set_allow_paid(bool(payload["on"]))
+                if "cap" in payload:
+                    config.set_spend_cap(float(payload["cap"]))
+                _CACHE.pop("models", None)          # the seatable set just changed
+                _CACHE.pop("cr_at", None)           # and re-read the balance
+                return self._json(_state())
+            if self.path == "/api/estimate":
+                mods = _models()
+                by_id = {m["id"]: m for m in mods}
+                ms = [by_id[i] for i in (payload.get("board") or []) if i in by_id]
+                if not ms:
+                    return self._json({"usd": 0.0, "human": "free", "paid_members": 0})
+                try:
+                    ch = seats.chair(mods, ms, allow_paid=config.allow_paid())
+                except seats.NoQuorum:
+                    ch = None
+                try:
+                    e = cost.session(ms, ch, peer_review=bool(payload.get("peer_review", True)))
+                except cost.Unpriced as ex:
+                    return self._json({"error": str(ex)})
+                return self._json({"usd": e.usd, "human": e.human(),
+                                   "paid_members": e.paid_members,
+                                   "per_model": list(e.per_model),
+                                   "cap": config.spend_cap(),
+                                   "over_cap": cost.over_cap(e, config.spend_cap())})
             if self.path == "/api/mgmt_key":
                 raw = payload.get("key", "")
                 if not raw.strip():

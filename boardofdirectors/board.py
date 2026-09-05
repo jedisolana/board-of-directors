@@ -209,7 +209,8 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    transport: Transport | None = None, models: list[dict] | None = None,
                    size: int = 5, minimum: int = 3, peer_review: bool = True,
                    live_catalogue: bool = True, kind: str = "decide",
-                   members: list[dict] | None = None, on_event=None) -> Session:
+                   members: list[dict] | None = None, on_event=None,
+                   allow_paid: bool = False) -> Session:
     """A board session that picks up an existing conversation.
 
     This is what makes the mode switch worth having. You talk to ONE model for a while at one
@@ -233,9 +234,9 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     # unconditionally, so a hand-picked board was quietly replaced by the automatic pick
     # whenever the two differed - and the caller was handed back the list it had ASKED for,
     # which is why it looked like it had been honoured.
-    members = members or seats.seat(models, size=size)
+    members = members or seats.seat(models, size=size, allow_paid=allow_paid)
     seats.quorum(members, minimum=minimum)
-    chair_model = seats.chair(models, members)
+    chair_model = seats.chair(models, members, allow_paid=allow_paid)
     s = Session(question=question, members=members, chair_model=chair_model, kind=kind)
 
     # A board session takes a minute. Reporting nothing until it is over turns deliberation
@@ -311,7 +312,8 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
         s.chair_failures.append({"model": chair_model["id"], "reason": r.reason})
         emit(type="chair_failed", model=chair_model["id"], reason=r.reason)
         try:
-            chair_model = seats.chair(models, members, exclude=set(tried))
+            chair_model = seats.chair(models, members, exclude=set(tried),
+                                      allow_paid=allow_paid)
             emit(type="chairing", model=chair_model["id"])
         except seats.NoQuorum:
             s.no_quorum = (f"{len(s.answers)} member(s) answered, but no free model could "

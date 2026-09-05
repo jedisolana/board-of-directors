@@ -122,6 +122,31 @@ def looks_unusual(key: str) -> str:
     return ""
 
 
+def credits(key: str, timeout: float = 15.0) -> dict | None:
+    """What is actually in the account. Works with an ORDINARY key -- no management key needed.
+
+    /api/v1/credits returns total_credits and total_usage, so the balance is knowable even
+    though the request COUNT is not. Worth having on screen next to an estimate: "this costs
+    about $0.03" means something quite different when the balance is $10 than when it is $0.
+    """
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request("https://openrouter.ai/api/v1/credits",
+                                 headers={"Authorization": f"Bearer {(key or '').strip()}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = (json.load(r) or {}).get("data") or {}
+    except Exception:
+        return None          # unknown, and unknown is not zero
+    try:
+        total = float(d.get("total_credits", 0) or 0)
+        used = float(d.get("total_usage", 0) or 0)
+    except (TypeError, ValueError):
+        return None
+    return {"purchased": round(total, 4), "used": round(used, 4),
+            "balance": round(total - used, 4)}
+
+
 def verify(key: str, timeout: float = 15.0) -> tuple[bool, str, dict]:
     """Ask OpenRouter whether this key works. The only real validation there is.
 
@@ -236,6 +261,31 @@ def forget_unusable(model_id: str | None = None) -> None:
         cfg.pop("unusable", None)
     else:
         (cfg.get("unusable") or {}).pop(model_id, None)
+    save(cfg)
+
+
+def allow_paid() -> bool:
+    """Whether paid models may be SEATED. Off unless turned on."""
+    return bool(load().get("allow_paid", False))
+
+
+def set_allow_paid(on: bool) -> None:
+    cfg = load()
+    cfg["allow_paid"] = bool(on)
+    save(cfg)
+
+
+def spend_cap() -> float:
+    """The most one session may cost, in dollars. A wall, not a warning."""
+    try:
+        return float(load().get("spend_cap_usd", 0.25))
+    except (TypeError, ValueError):
+        return 0.25
+
+
+def set_spend_cap(usd: float) -> None:
+    cfg = load()
+    cfg["spend_cap_usd"] = max(0.0, float(usd))
     save(cfg)
 
 

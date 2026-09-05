@@ -66,6 +66,11 @@
   .m.dead{opacity:.4}
   .tag{display:inline-block;font-size:9.5px;padding:0 4px;border-radius:3px;
        background:var(--panel2);color:var(--dim);margin-left:5px;vertical-align:1px}
+  .tagfree{color:var(--good)}
+  .tagpaid{color:var(--warn)}
+  .cost{color:var(--warn);font-size:11.5px;font-family:var(--mono);margin-left:10px}
+  .cost.free{color:var(--dimmer)}
+  .cost.over{color:var(--bad);font-weight:600}
 
   section{flex:1;display:flex;flex-direction:column;min-width:0}
   .thread{flex:1;overflow-y:auto;padding:22px 26px}
@@ -202,6 +207,7 @@
   <div class="stat"><i>today</i><b id="hUse">-</b><div class="gauge"><div id="hBar"></div></div></div>
   <div class="stat"><i>resets in</i><b id="hReset">-</b></div>
   <div class="stat"><i>provider busy</i><b id="hBusy">-</b></div>
+  <div class="stat"><i>balance</i><b id="hBal">-</b></div>
   <div class="spacer"></div>
   <button class="ghost" id="bCode">audit code</button>
   <button class="ghost" id="bKey">key</button>
@@ -219,6 +225,10 @@
     <div class="sorts">
       <button class="sort on" data-k="coding">best at coding</button>
       <button class="sort" data-k="thinking">best at thinking</button>
+    </div>
+    <div class="sorts" style="padding-top:0">
+      <button class="sort on" id="fFree">free only</button>
+      <button class="sort" id="fPaid">include paid</button>
     </div>
     <div class="models" id="models"></div>
     <div class="asidehead" style="border-top:1px solid var(--line);border-bottom:none">
@@ -249,6 +259,7 @@
             <button class="kind" data-kind="make">make</button>
           </span>
           <span class="cost" id="cost">1 request</span>
+          <span class="cost" id="money"></span>
         </div>
         <div class="row">
           <textarea id="input" placeholder="Ask something..." rows="1"></textarea>
@@ -403,6 +414,18 @@ function paintHeader(){
   $("#hBar").style.background = u.since_reset ? "var(--dimmer)"
                               : pct > 40 ? "var(--good)" : pct > 15 ? "var(--warn)" : "var(--bad)";
   $("#hReset").textContent = u.resets_in;
+  // The balance, from OpenRouter, with an ordinary key. "This costs about $0.03" means
+  // something different at $10 than at $0, and the estimate is only useful beside it.
+  const cr = S.credits;
+  const bal = $("#hBal");
+  if(!cr){ bal.textContent = "-"; bal.title = "could not read the balance"; }
+  else {
+    bal.textContent = "$" + cr.balance.toFixed(2);
+    bal.style.color = cr.balance > 0 ? "var(--good)" : "var(--dimmer)";
+    bal.title = `$${cr.purchased.toFixed(2)} purchased, $${cr.used.toFixed(2)} used. `
+      + (cr.purchased >= 10 ? "Above the $10 all-time threshold, so free models get 1000/day."
+                            : "Under $10 all-time, so free models get 50/day.");
+  }
   const busy = u.provider_busy || 0;
   $("#hBusy").textContent = busy ? `${busy}` : "-";
   $("#hBusy").parentElement.title = busy
@@ -436,7 +459,9 @@ function paintModels(){
                        ${m.seatable?"":"disabled"} title="seat on the board">
       <div style="min-width:0;flex:1">
         <div class="id">${esc(p.name)}${m.json?'<span class="tag">json</span>':''}</div>
-        <div class="meta">${esc(p.vendor)} · reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}</div>
+        <div class="meta">${esc(p.vendor)} · reads ${k(m.context_length)} · writes ${k(m.max_completion_tokens)}`
+      + (m.free ? ` · <span class="tagfree">free</span>`
+                : ` · <span class="tagpaid">$${m.price_in}/$${m.price_out} per M</span>`) + `</div>
       </div>
       <div class="score ${sc(m)==null?"none":""}" title="${scoreTip(m)}">
         <b>${sortKey==="size" ? k(m.context_length) : (sc(m)==null ? "—" : sc(m))}</b>
@@ -468,9 +493,46 @@ function paintModels(){
   }).join("");
   $("#cost").textContent = mode === "board"
       ? `${(board.length||5)*2 + 1} requests` : "1 request";
+  refreshMoney();
 }
 
-function paint(){ paintHeader(); paintModels(); }
+function paint(){ paintHeader(); paintModels(); paintPaidToggle(); }
+
+function paintPaidToggle(){
+  const on = !!(S && S.allow_paid);
+  $("#fFree").classList.toggle("on", !on);
+  $("#fPaid").classList.toggle("on", on);
+}
+
+// The estimate is shown BEFORE the send, never reported after it. A cost you learn afterwards
+// is a bill, not a decision.
+let moneyTimer = null;
+function refreshMoney(){
+  clearTimeout(moneyTimer);
+  moneyTimer = setTimeout(async () => {
+    const el = $("#money");
+    if(mode !== "board" || !board.length){ el.textContent = ""; return; }
+    const anyPaid = board.some(id => byId(id).free === false);
+    if(!anyPaid){ el.textContent = "free"; el.className = "cost free"; return; }
+    const e = await api("/api/estimate", {board});
+    if(e.error){ el.textContent = e.error; el.className = "cost over"; return; }
+    el.textContent = e.human + (e.over_cap ? ` — OVER YOUR $${e.cap} CAP` : "");
+    el.className = "cost" + (e.over_cap ? " over" : "");
+  }, 250);
+}
+
+async function setPaid(on){
+  if(on && !confirm("Turn on paid models?\n\nSeating a paid model spends real money from "
+      + "your OpenRouter balance. Every session shows its estimated cost before you send it, "
+      + "and a spend cap blocks anything above it.")) return;
+  S = await api("/api/paid", {on});
+  // a board seated while paid was on may now contain models that are no longer allowed
+  board = board.filter(id => byId(id) && (byId(id).free || S.allow_paid));
+  await api("/api/board", {board});
+  paint();
+}
+$("#fFree").onclick = () => setPaid(false);
+$("#fPaid").onclick = () => setPaid(true);
 
 function note(title, body, kind){
   const d = document.createElement("div");
@@ -677,7 +739,8 @@ async function send(){
   let ui = null, wait = null, r;
   if(mode === "board"){
     ui = boardTurn();
-    r = await streamBoard({mode, kind, model:talking, board, messages:messages()}, ui);
+    r = await streamBoard({mode, kind, model:talking, board, allow_paid: !!(S && S.allow_paid),
+                           messages:messages()}, ui);
   } else {
     wait = document.createElement("div");
     wait.className = "turn";
@@ -896,7 +959,8 @@ async function sendCode(asBoard){
   $("#thread").appendChild(wait); scroll();
 
   const r = await api("/api/chat", {mode: asBoard ? "board" : "single", model: talking,
-                                    board, kind, messages: [{role:"user", content: line}],
+                                    board, kind, allow_paid: !!(S && S.allow_paid),
+                                    messages: [{role:"user", content: line}],
                                     code_path: scanned.root, send_anyway: sendAnyway});
   wait.remove();
   if(r.refused){

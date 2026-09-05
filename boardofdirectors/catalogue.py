@@ -31,10 +31,29 @@ SNAPSHOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # Free-priced rows that are not board material. A seat needs a model that can hold an
 # argument; these can't, and seating them looks like a working board that never deliberates.
 NOT_DELIBERATIVE = {
-    "openrouter/free",                       # a router, not a model -- it hides which member answered
     "nvidia/nemotron-3.5-content-safety",    # a guardrail classifier, not a reasoner
 }
+# Every `openrouter/*` id is a router rather than a model: auto, free, fusion, pareto-code and
+# the rest all pick something else and answer as themselves. A board seat has to be a named
+# model - otherwise "one seat per family" guarantees nothing, because two routers can quietly
+# choose the same underlying model and the independence the whole thing rests on is gone.
+NOT_DELIBERATIVE_FAMILY = {"openrouter"}
 NOT_DELIBERATIVE_PREFIX = ("google/lyria-",)  # music/audio generation
+
+
+def _per_million(v) -> float | None:
+    """Price per million tokens, or None when there isn't one.
+
+    OpenRouter uses -1 for routers whose price depends on which model they end up choosing.
+    Multiplied out that reads as MINUS A MILLION DOLLARS per million tokens, and any
+    "cheapest first" sort puts it at the top - a cost estimate that pays you to use it. A
+    price that is not a price must be None, not a number pointing the wrong way.
+    """
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(n * 1_000_000, 4) if n >= 0 else None
 
 
 def is_free(model: dict) -> bool:
@@ -54,9 +73,16 @@ def _normalise(m: dict) -> dict:
     # very bottom on agentic work. Missing is common and must stay missing -- a model with no
     # score is unmeasured, not bad, and filling it with a zero would rank it last on purpose.
     aa = ((m.get("benchmarks") or {}).get("artificial_analysis") or {})
+    pricing = m.get("pricing") or {}
     return {
         "id": m["id"],
         "name": m.get("name") or m["id"],
+        "free": is_free(m),
+        # per-MILLION tokens, which is how everyone quotes them and how nobody stores them:
+        # OpenRouter's own figures are per token, and reading one as the other is a
+        # million-fold error in the direction of "this is basically free".
+        "price_in": _per_million(pricing.get("prompt")),
+        "price_out": _per_million(pricing.get("completion")),
         "family": m["id"].split("/")[0],
         "context_length": m.get("context_length"),
         "max_completion_tokens": tp.get("max_completion_tokens"),
@@ -74,11 +100,15 @@ def fetch(timeout: float = 20.0) -> dict:
     req = urllib.request.Request(MODELS_URL, headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         data = json.load(r)["data"]
+    # EVERY model is kept now, free and paid, with its price. Filtering paid ones out here
+    # was fine while the board could only be free, but it meant "is this affordable?" was a
+    # question the program could not even ask. Paid models are excluded at SEATING time
+    # instead, by an explicit setting, so the default is unchanged and the reason is visible.
     return {
         "captured": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source": MODELS_URL,
         "total_models_seen": len(data),
-        "models": [_normalise(m) for m in sorted(data, key=lambda x: x["id"]) if is_free(m)],
+        "models": [_normalise(m) for m in sorted(data, key=lambda x: x["id"])],
     }
 
 
@@ -117,16 +147,29 @@ def base_id(model_id: str) -> str:
     return model_id.split(":", 1)[0]
 
 
-def deliberative(models: list[dict]) -> list[dict]:
-    """Free models that could actually sit on a board."""
+def deliberative(models: list[dict], allow_paid: bool = False) -> list[dict]:
+    """Models that could actually sit on a board.
+
+    Paid models are excluded unless explicitly allowed. This is the one place in the program
+    where a wrong default costs real money, so the default is the free one and the caller has
+    to say otherwise every time -- there is no remembered "allow paid" that could quietly
+    apply to a session nobody meant to pay for.
+    """
     out = []
     for m in models:
         bid = base_id(m["id"])
         if bid in NOT_DELIBERATIVE or m["id"] in NOT_DELIBERATIVE:
             continue
+        if m["id"].split("/")[0] in NOT_DELIBERATIVE_FAMILY:
+            continue
         if bid.startswith(NOT_DELIBERATIVE_PREFIX):
             continue
         if "text" not in (m.get("input_modalities") or ["text"]):
+            continue
+        if not allow_paid and not m.get("free", True):
+            continue
+        # A model whose price is unknown cannot be costed, so it cannot be consented to.
+        if allow_paid and not m.get("free", True) and m.get("price_in") is None:
             continue
         out.append(m)
     return out

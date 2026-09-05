@@ -20,6 +20,7 @@ from boardofdirectors import (
     budget,
     catalogue,
     config,
+    cost,
     redact,
     seats,
     sessions,
@@ -603,6 +604,87 @@ class WatchingItHappen(unittest.TestCase):
     def test_no_listener_at_all_is_fine(self):
         s = board.ask("Ship it?", transport=OfflineTransport(), models=POOL, size=4)
         self.assertIsNotNone(s.decision)
+
+
+def paidmodel(mid, pin=1.0, pout=3.0, ctx=200000):
+    m = model(mid, ctx=ctx)
+    m.update({"free": False, "price_in": pin, "price_out": pout})
+    return m
+
+
+class PaidSeats(unittest.TestCase):
+    """The first thing here that can spend money, so the rules are different.
+
+    Everything else in this program is wrong-in-the-safe-direction by choice. Here the safe
+    direction is not spending, and every gate points that way.
+    """
+
+    POOLP: typing.ClassVar[list] = [
+        {**m, "free": True, "price_in": 0.0, "price_out": 0.0} for m in POOL
+    ] + [paidmodel("zeta/pricey:x", 10.0, 30.0), paidmodel("eta/cheap:x", 0.02, 0.05)]
+
+    def test_paid_models_are_not_seated_by_default(self):
+        b = seats.seat(self.POOLP, size=9)
+        self.assertTrue(all(m["free"] for m in b), "a default board must cost nothing")
+
+    def test_they_are_seated_only_when_explicitly_allowed(self):
+        b = seats.seat(self.POOLP, size=9, allow_paid=True)
+        self.assertTrue(any(not m["free"] for m in b))
+
+    def test_the_chair_follows_the_same_permission(self):
+        """The chair is chosen by the program, not the user. It must never be the thing that
+        turns a free session into a paid one."""
+        b = seats.seat(self.POOLP, size=3)
+        self.assertTrue(seats.chair(self.POOLP, b)["free"])
+
+    def test_a_free_board_costs_nothing_and_says_so(self):
+        b = seats.seat(self.POOLP, size=4)
+        e = cost.session(b, seats.chair(self.POOLP, b))
+        self.assertEqual(e.usd, 0.0)
+        self.assertEqual(e.human(), "free")
+
+    def test_an_unpriced_model_is_refused_not_costed_at_zero(self):
+        """Unknown is not free, and unknown cannot be consented to."""
+        m = paidmodel("theta/mystery:x")
+        m["price_in"] = None
+        with self.assertRaises(cost.Unpriced):
+            cost.session([m])
+
+    def test_a_negative_price_never_becomes_a_bargain(self):
+        """OpenRouter uses -1 for routers whose price depends on what they pick. Multiplied
+        out that reads as minus a million dollars, and sorts to the top of "cheapest"."""
+        self.assertIsNone(catalogue._per_million(-1))
+        self.assertEqual(catalogue._per_million(0.000002), 2.0)
+
+    def test_the_estimate_rounds_up(self):
+        """Being pleasantly surprised is the only acceptable direction to be wrong in."""
+        e = cost.session([paidmodel("zeta/pricey:x", 10.0, 30.0)], peer_review=False)
+        raw = (cost.DEFAULT_PROMPT_TOKENS / 1e6) * 10.0 + (cost.DEFAULT_OUTPUT_TOKENS / 1e6) * 30.0
+        self.assertGreaterEqual(e.usd, round(raw, 6))
+
+    def test_the_chair_is_priced_for_reading_everyone(self):
+        members = [paidmodel(f"m{i}/x:y", 1.0, 1.0) for i in range(4)]
+        chair = paidmodel("chair/x:y", 1.0, 1.0)
+        with_chair = cost.session(members, chair, peer_review=False)
+        without = cost.session(members, None, peer_review=False)
+        # the chair's prompt is the whole meeting, so it costs more than one member does
+        one_member = (with_chair.usd - without.usd)
+        self.assertGreater(one_member, without.usd / len(members))
+
+    def test_a_cap_is_a_wall(self):
+        e = cost.session([paidmodel("zeta/pricey:x", 10.0, 30.0)] * 3)
+        self.assertTrue(cost.over_cap(e, 0.01))
+        self.assertFalse(cost.over_cap(e, 1000.0))
+        self.assertFalse(cost.over_cap(e, None), "no cap set means no wall")
+
+    def test_routers_can_never_hold_a_seat(self):
+        """Two routers can quietly choose the same underlying model, and the independence the
+        whole thing rests on is gone without anything looking wrong."""
+        pool = [*self.POOLP, paidmodel("openrouter/auto", 1.0, 1.0),
+                {**model("openrouter/free"), "free": True}]
+        ids = {m["id"] for m in seats.seat(pool, size=99, allow_paid=True)}
+        self.assertNotIn("openrouter/auto", ids)
+        self.assertNotIn("openrouter/free", ids)
 
 
 class TheVote(unittest.TestCase):

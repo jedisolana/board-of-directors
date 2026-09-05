@@ -270,7 +270,8 @@ def cmd_refresh(args) -> int:
     c = catalogue.fetch()
     with open(catalogue.SNAPSHOT, "w") as f:
         json.dump(c, f, indent=2)
-    print(f"  {len(c['models'])} free model(s) of {c['total_models_seen']} -> {catalogue.SNAPSHOT}")
+    free = sum(1 for m in c["models"] if m.get("free"))
+    print(f"  {len(c['models'])} model(s), {free} free -> {catalogue.SNAPSHOT}")
     return 0
 
 
