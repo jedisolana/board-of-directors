@@ -209,7 +209,9 @@ class Transport(unittest.TestCase):
     def test_retry_after_is_preferred_over_backoff(self):
         self.assertEqual(OpenRouterTransport._backoff(3, 7.5), 7.5)
         self.assertLessEqual(OpenRouterTransport._backoff(3, None), 30.0)
-        self.assertEqual(OpenRouterTransport._backoff(0, 999), 60.0)   # clamped
+        # Clamped to 15s, not 60s: a Retry-After longer than the board's own deadline is a
+        # sleep nobody is waiting through. Five other members are answering.
+        self.assertEqual(OpenRouterTransport._backoff(0, 999), 15.0)
 
     def test_a_failure_is_never_an_answer(self):
         f = Failure("m", "rate limited", status=429)
@@ -747,6 +749,60 @@ class PaidSeats(unittest.TestCase):
         ids = {m["id"] for m in seats.seat(pool, size=99, allow_paid=True)}
         self.assertNotIn("openrouter/auto", ids)
         self.assertNotIn("openrouter/free", ids)
+
+
+class TheBoardDoesNotQueue(unittest.TestCase):
+    """"The board has never worked" - and it had not, for a reason that never threw.
+
+    Members were asked one at a time in a for loop, each call up to four attempts at a
+    two-minute timeout. One stuck model could hold the whole board for eight minutes with
+    nothing on screen. Not a crash: a queue. The independence that is the entire premise of
+    this thing was being thrown away by the code that asks them.
+    """
+
+    class Slow(OfflineTransport):
+        def __init__(self, slow, secs):
+            super().__init__()
+            self.slow, self.secs = slow, secs
+
+        def ask(self, model, messages, **kw):
+            if model["id"] in self.slow:
+                time.sleep(self.secs)
+            return super().ask(model, messages, **kw)
+
+    def test_one_slow_member_does_not_hold_the_board(self):
+        b = seats.seat(POOL, size=4)
+        t0 = time.time()
+        s = board.ask("x", transport=self.Slow({b[0]["id"]}, 3), models=POOL,
+                      members=b, deadline=0.5)
+        took = time.time() - t0
+        self.assertLess(took, 2.0, f"the board waited {took:.1f}s for a member it gave up on")
+        self.assertEqual(len(s.answers), 3)
+        self.assertIn("did not wait", s.failures[0].reason)
+
+    def test_a_missed_deadline_is_a_failure_like_any_other(self):
+        """From the board's point of view it IS one: the member did not answer. Which means
+        it is not counted as agreement, and it can cost the session its quorum honestly."""
+        b = seats.seat(POOL, size=4)
+        s = board.ask("x", transport=self.Slow({m["id"] for m in b}, 2), models=POOL,
+                      members=b, minimum=3, deadline=0.3)
+        self.assertEqual(len(s.answers), 0)
+        self.assertIsNotNone(s.no_quorum)
+
+    def test_members_are_asked_at_the_same_time_not_in_turn(self):
+        """Four members that each take half a second should cost about half a second."""
+        b = seats.seat(POOL, size=4)
+        t0 = time.time()
+        board.ask("x", transport=self.Slow({m["id"] for m in b}, 0.4), models=POOL,
+                  members=b, peer_review=False, deadline=5.0)
+        took = time.time() - t0
+        self.assertLess(took, 1.6, f"asked in turn, not at once: {took:.1f}s for 4 x 0.4s")
+
+    def test_the_retry_policy_cannot_outlast_the_deadline(self):
+        from boardofdirectors.transport import OpenRouterTransport as T
+        self.assertEqual(T("sk-or-v1-" + "a" * 64).max_retries, 2)
+        self.assertEqual(T("sk-or-v1-" + "a" * 64).timeout, 45.0)
+        self.assertLessEqual(T._backoff(0, 999), 15.0)
 
 
 class TheVote(unittest.TestCase):

@@ -140,12 +140,17 @@ class OpenRouterTransport(Transport):
     """The real client. Sends only parameters the model is documented to support."""
 
     def __init__(self, api_key: str, *, app_url: str | None = None, app_title: str = "Board of Directors",
-                 timeout: float = 120.0, max_retries: int = 4, sleep=time.sleep, meter: bool = True):
+                 timeout: float = 45.0, max_retries: int = 2, sleep=time.sleep,
+                 meter: bool = True):
         if not api_key:
             raise ValueError("no API key -- use OfflineTransport to run without one")
         self.api_key = api_key
         self.app_url = app_url
         self.app_title = app_title
+        # 45s and two attempts, not 120s and four. The old numbers came from thinking about
+        # one call in isolation: worst case they let a single member hold the board for
+        # eight minutes. On a board, a member that is slow is not a member worth waiting
+        # for - there are five others, and the board handles a missing one correctly.
         self.timeout = timeout
         self.max_retries = max_retries
         self._sleep = sleep
@@ -187,8 +192,8 @@ class OpenRouterTransport(Transport):
     @staticmethod
     def _backoff(attempt: int, retry_after: float | None) -> float:
         if retry_after is not None:
-            return min(retry_after, 60.0)
-        return min(2.0 ** attempt + random.uniform(0, 0.5), 30.0)
+            return min(retry_after, 15.0)      # honour it, but not past the deadline
+        return min(2.0 ** attempt + random.uniform(0, 0.5), 8.0)
 
     def ask(self, model: dict, messages: list[dict], *, want_json: bool = False,
             max_tokens: int | None = None, temperature: float | None = 0.7) -> Answer | Failure:

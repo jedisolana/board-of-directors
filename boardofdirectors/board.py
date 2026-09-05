@@ -186,6 +186,45 @@ class Session:
         return "\n".join(out)
 
 
+def _ask_all(transport, models: list[dict], messages: list[dict], deadline: float):
+    """Ask every model at once; yield (model, result) as each lands, slowest last.
+
+    A model that misses the deadline yields a Failure like any other refusal, because from
+    the board's point of view it is one: it did not answer. Its thread is left to finish and
+    be discarded rather than being killed, since there is no safe way to interrupt a socket
+    read mid-flight and a leaked answer is cheaper than a corrupted one.
+    """
+    import concurrent.futures as cf
+    out = []
+    # NOT a `with` block. Its __exit__ calls shutdown(wait=True), which blocks on exactly the
+    # slow thread the deadline exists to walk away from - the timeout would report correctly
+    # and the board would sit there anyway. Measured: a 1s deadline against a 3s member still
+    # took 3s until this was unwound.
+    pool = cf.ThreadPoolExecutor(max_workers=max(1, len(models)))
+    try:
+        futures = {pool.submit(transport.ask, m, messages): m for m in models}
+        try:
+            for fut in cf.as_completed(futures, timeout=deadline):
+                out.append((futures[fut], fut.result()))
+        except cf.TimeoutError:
+            pass
+        done = {id(m) for m, _ in out}
+        for fut, m in futures.items():
+            if id(m) not in done:
+                fut.cancel()
+                out.append((m, Failure(m["id"],
+                                       f"no answer within {deadline:.0f}s — the board did "
+                                       f"not wait")))
+    finally:
+        # Threads still in a socket read cannot be interrupted safely; they finish and their
+        # answers are discarded. A leaked answer is cheaper than a corrupted one, and the
+        # process is a local server that will outlive them either way.
+        pool.shutdown(wait=False)
+    order = {m["id"]: i for i, m in enumerate(models)}
+    out.sort(key=lambda pair: order.get(pair[0]["id"], 0))
+    return out
+
+
 def _blind(answers: list[Answer]) -> tuple[str, dict[str, str]]:
     """Label the answers A, B, C... and keep the mapping for the audit trail."""
     labels, blocks = {}, []
@@ -200,12 +239,13 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
         size: int = seats.DEFAULT_SEATS, minimum: int = 3, peer_review: bool = True,
         live_catalogue: bool = True, kind: str = "decide", on_event=None,
         members: list[dict] | None = None, allow_paid: bool = False,
-        tier: str | None = None) -> Session:
+        tier: str | None = None, deadline: float = 90.0) -> Session:
     """Run one board session. Raises `redact.Refused` before anything leaves the machine."""
     return ask_in_context(question, prior=None, transport=transport, models=models, size=size,
                           minimum=minimum, peer_review=peer_review,
                           live_catalogue=live_catalogue, kind=kind, on_event=on_event,
-                          members=members, allow_paid=allow_paid, tier=tier)
+                          members=members, allow_paid=allow_paid, tier=tier,
+                          deadline=deadline)
 
 
 def ask_in_context(question: str, *, prior: list[dict] | None = None,
@@ -213,7 +253,8 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    size: int = seats.DEFAULT_SEATS, minimum: int = 3, peer_review: bool = True,
                    live_catalogue: bool = True, kind: str = "decide",
                    members: list[dict] | None = None, on_event=None,
-                   allow_paid: bool = False, tier: str | None = None) -> Session:
+                   allow_paid: bool = False, tier: str | None = None,
+                   deadline: float = 90.0) -> Session:
     """A board session that picks up an existing conversation.
 
     This is what makes the mode switch worth having. You talk to ONE model for a while at one
@@ -254,11 +295,22 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     emit(type="seated", members=[m["id"] for m in members], chair=chair_model["id"], kind=kind)
 
     # 1. independent answers -- each member reads the thread so far, then answers alone
+    #
+    # ASKED IN PARALLEL, because they are independent. That independence is the entire premise
+    # of the thing, and asking them in a queue threw away the one property that makes the
+    # parallelism free. It also made a slow member block every member behind it: one call is
+    # up to four attempts at a two-minute timeout, so a single stuck model could hold the
+    # whole board for eight minutes with nothing on screen. That is what "the board never
+    # works" looked like from the outside - not a crash, a queue.
+    #
+    # A DEADLINE, because a member who has not answered in time is a member who did not
+    # answer, and the board already knows exactly what to do with one of those.
     make = (kind == "make")
     prompt = (MAKE_PROMPT if make else ANSWER_PROMPT).format(q=question)
     for m in members:
         emit(type="asking", model=m["id"])
-        r = transport.ask(m, [*prior, {"role": "user", "content": prompt}])
+    for _m, r in _ask_all(transport, members,
+                          [*prior, {"role": "user", "content": prompt}], deadline):
         (s.answers if r.ok else s.failures).append(r)
         if r.ok:
             emit(type="answer", model=r.model, vote=read_vote(r.text), text=strip_vote(r.text))
@@ -280,11 +332,11 @@ def ask_in_context(question: str, *, prior: list[dict] | None = None,
     # 2. blind peer ranking
     if peer_review and len(s.answers) > 1:
         rp = (MAKE_RANK_PROMPT if make else RANK_PROMPT).format(q=question, answers=blind_text)
-        for m in members:
-            if not any(a.model == m["id"] for a in s.answers):
-                continue          # a member who did not answer does not get to rank
+        rankers = [m for m in members if any(a.model == m["id"] for a in s.answers)]
+        for m in rankers:
             emit(type="ranking", model=m["id"])
-            r = transport.ask(m, [*prior, {"role": "user", "content": rp}])
+        for m, r in _ask_all(transport, rankers, [*prior, {"role": "user", "content": rp}],
+                             deadline):
             if r.ok:
                 s.rankings.append(r)
                 emit(type="ranked", model=m["id"])
