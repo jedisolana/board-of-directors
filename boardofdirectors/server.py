@@ -268,6 +268,21 @@ def _board(payload: dict, on_event=None) -> dict:
     except seats.NoQuorum as e:
         return {"error": str(e)}
 
+    # The message is built BEFORE it is priced, because its size is most of the price. The
+    # estimate used to run first, at chat size, and the code message was assembled afterwards:
+    # a 100k-token folder audit on a $15/M member was waved through a $0.25 cap as "$0.15".
+    # The README calls the cap a wall. It was a wall with the gate left open on the one side
+    # where the money is.
+    history = list(payload.get("messages") or [])
+    question = history[-1].get("content", "") if history else ""
+    smallest = min((m.get("context_length") or 0) for m in members) or None
+    code = _code_message(payload, {"context_length": smallest} if smallest else None)
+    if code:
+        question = code
+    prompt_tokens = max(cost.DEFAULT_PROMPT_TOKENS,
+                        sum(len(m.get("content", "")) for m in history[:-1]) // codebase.CHARS_PER_TOKEN
+                        + len(question) // codebase.CHARS_PER_TOKEN)
+
     # Cost is checked BEFORE anything is sent. A cap is a wall.
     try:
         chair_guess = seats.chair(models, members, tier=_tier(payload))
@@ -275,7 +290,8 @@ def _board(payload: dict, on_event=None) -> dict:
         chair_guess = None
     try:
         est = cost.session(members, chair_guess,
-                           peer_review=bool(payload.get("peer_review", True)))
+                           peer_review=bool(payload.get("peer_review", True)),
+                           prompt_tokens=prompt_tokens)
     except cost.Unpriced as e:
         return {"error": f"cannot price this board: {e}"}
     cap = config.spend_cap()
@@ -288,16 +304,8 @@ def _board(payload: dict, on_event=None) -> dict:
                          f"${cap:,.2f} cap. Raise the cap or seat cheaper models."}
 
     transport, live = _transport(payload.get("offline", False))
-    history = list(payload.get("messages") or [])
     redact.check("\n".join(m.get("content", "") for m in history))
-    question = history[-1].get("content", "") if history else ""
     prior = history[:-1]
-    # the smallest window on the board decides how much code every member can be given,
-    # so each of them reads the SAME tree -- otherwise they are not auditing the same thing
-    smallest = min((m.get("context_length") or 0) for m in members) or None
-    code = _code_message(payload, {"context_length": smallest} if smallest else None)
-    if code:
-        question = code
 
     s = board.ask_in_context(question, prior=prior, transport=transport, models=models,
                              members=members, minimum=int(payload.get("minimum", 3)),
@@ -538,7 +546,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 except seats.NoQuorum:
                     ch = None
                 try:
-                    e = cost.session(ms, ch, peer_review=bool(payload.get("peer_review", True)))
+                    e = cost.session(ms, ch, peer_review=bool(payload.get("peer_review", True)),
+                                     prompt_tokens=max(cost.DEFAULT_PROMPT_TOKENS,
+                                                       int(payload.get("prompt_tokens") or 0)))
                 except cost.Unpriced as ex:
                     return self._json({"error": str(ex)})
                 return self._json({"usd": e.usd, "human": e.human(),

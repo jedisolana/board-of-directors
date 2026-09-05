@@ -2855,5 +2855,83 @@ class TheWelcomeTextFollowsTheSeats(unittest.TestCase):
         self.assertIn("2 * nSeats + 1", h)
 
 
+class FreeMeansEveryPriceIsZero(unittest.TestCase):
+    """OpenRouter's pricing block has a dozen fields. Checking two of them would seat a model
+    that is free on tokens and metered on web search or images as free, and bill the owner."""
+
+    def test_two_zero_prices_with_a_third_fee_is_not_free(self):
+        for fee in ("web_search", "image", "audio", "internal_reasoning", "request"):
+            with self.subTest(fee):
+                m = {"pricing": {"prompt": "0", "completion": "0", fee: "0.002"}}
+                self.assertFalse(catalogue.is_free(m), f"{fee} fee ignored")
+
+    def test_all_zero_is_free_and_missing_extras_are_fine(self):
+        self.assertTrue(catalogue.is_free({"pricing": {"prompt": "0", "completion": "0"}}))
+        self.assertTrue(catalogue.is_free({"pricing": {"prompt": "0", "completion": "0",
+                                                       "web_search": "0", "image": None,
+                                                       "overrides": {"x": 1}}}))
+
+    def test_missing_token_prices_are_not_free(self):
+        self.assertFalse(catalogue.is_free({"pricing": {"prompt": "0"}}))
+        self.assertFalse(catalogue.is_free({"pricing": {}}))
+        self.assertFalse(catalogue.is_free({}))
+
+
+class TheWallSeesTheWholeMessage(unittest.TestCase):
+    """The estimate ran before the code message was built, at chat size. A 100k-token folder
+    audit on a $15/M member passed a $0.25 cap as "$0.15". Driven through _board, because
+    the order of two lines in it was the bug."""
+
+    PAID = model("costly/opus", free=False, price_in=15.0, price_out=75.0, ctx=400_000)
+    FREE = tuple(model(f"f{i}/m:free", ctx=400_000) for i in range(4))
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        self.old_cache = dict(server._CACHE)
+        server._CACHE["models"] = [self.PAID, *self.FREE]
+        server._CACHE["at"] = time.time() + 10_000
+        self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
+        # sixty ordinary-sized files, because the scanner skips any single file over its limit -
+        # the first version of this fixture was one 480 KB file, and it never reached the board
+        for i in range(60):
+            with open(os.path.join(self.folder, f"mod{i:02d}.py"), "w", encoding="utf-8") as f:
+                f.write("x = 1  # a line of code that is about forty characters long\n" * 130)   # ~2k tokens each
+        config.set_model_tier("both")
+        config.set_spend_cap(0.25)
+
+    def tearDown(self):
+        server._CACHE.clear()
+        server._CACHE.update(self.old_cache)
+        if self.old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old
+        importlib.reload(config)
+
+    def run_board(self, code_path=None):
+        payload = {"offline": True, "allow_paid": True, "peer_review": False,
+                   "board": [self.PAID["id"], *(m["id"] for m in self.FREE[:2])],
+                   "messages": [{"role": "user", "content": "audit this"}]}
+        if code_path:
+            payload["code_path"] = code_path
+            payload["send_anyway"] = True
+        return server._board(payload)
+
+    def test_a_big_folder_on_a_paid_member_hits_the_cap(self):
+        r = self.run_board(self.folder)
+        self.assertIn("error", r, "a $1.80 audit was waved through a $0.25 cap")
+        self.assertIn("cap", r["error"])
+
+    def test_a_chat_sized_question_on_the_same_board_is_fine(self):
+        r = self.run_board()
+        self.assertNotIn("error", r)
+        self.assertLess(r["estimated_usd"], 0.25)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

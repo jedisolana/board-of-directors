@@ -730,7 +730,9 @@ function refreshMoney(){
     if(mode !== "board" || !board.length){ el.textContent = ""; return; }
     const anyPaid = board.some(id => byId(id).free === false);
     if(!anyPaid){ el.textContent = "free"; el.className = "cost free"; return; }
-    const e = await api("/api/estimate", {board});
+    // Price what is about to be SENT: the history plus what is typed, not a chat-sized guess.
+    const chars = messages().reduce((n, m) => n + (m.content || "").length, 0) + $("#input").value.length;
+    const e = await api("/api/estimate", {board, prompt_tokens: Math.ceil(chars / 4)});
     if(e.error){ el.textContent = e.error; el.className = "cost over"; return; }
     el.textContent = e.human + (e.over_cap ? ` — OVER YOUR $${e.cap} CAP` : "");
     el.className = "cost" + (e.over_cap ? " over" : "");
@@ -941,6 +943,8 @@ async function streamBoard(payload, ui){
   return done || {type:"error", error:"the stream ended without a result"};
 }
 
+$("#input").addEventListener("input", refreshMoney);
+
 async function send(){
   const text = $("#input").value.trim();
   if(!text || busy) return;
@@ -952,6 +956,14 @@ async function send(){
 
   let ui = null, wait = null, r;
   if(mode === "board"){
+    // A board that runs out of requests halfway is honest about it afterwards - failures are
+    // never counted as agreement - but the person could have been told before. Advisory: the
+    // count is an estimate until a 429 makes it exact, so this warns and does not block.
+    const need = (board.length || seatCount) * 2 + 1, u = S && S.usage;
+    if(u && u.remaining != null && u.remaining < need)
+      note("Not enough requests left today",
+           `About <b>${u.remaining}</b> left and this board needs <b>${need}</b>. Members past the `
+           + `limit will fail, and a failed member is not counted as agreement. It resets in ${esc(u.resets_in || "a while")}.`, "warn");
     ui = boardTurn();
     r = await streamBoard({mode, kind, model:talking, board, size: seatCount,
                            allow_paid: !!(S && S.allow_paid), tier: S && S.model_tier,

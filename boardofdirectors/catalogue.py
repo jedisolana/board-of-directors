@@ -66,10 +66,24 @@ def _per_million(v) -> float | None:
 
 
 def is_free(model: dict) -> bool:
-    """Both prices zero. A model free on prompt but metered on completion is not free."""
+    """Every price zero. A model free on prompt but metered on completion is not free - and
+    neither is one free on tokens but metered on web search, images, audio or reasoning.
+
+    OpenRouter's pricing block carries a dozen fields, not two. Today no zero-token model has
+    another fee; the day one does, checking only prompt and completion would seat it as free
+    and bill the owner. Prompt and completion must be PRESENT and zero; any other field that is
+    present and numeric must be zero too. `overrides` is not a price and is skipped.
+    """
     p = model.get("pricing") or {}
     try:
-        return float(p.get("prompt", 1)) == 0 and float(p.get("completion", 1)) == 0
+        if float(p.get("prompt", 1)) != 0 or float(p.get("completion", 1)) != 0:
+            return False
+        for k, v in p.items():
+            if k in ("prompt", "completion", "overrides") or v is None:
+                continue
+            if float(v) != 0:
+                return False
+        return True
     except (TypeError, ValueError):
         return False
 
