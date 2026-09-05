@@ -2312,5 +2312,32 @@ class TheChairWalkIsBudgeted(unittest.TestCase):
         self.assertEqual(len(s.chair_failures), 1)
 
 
+class CredentialsInsideAUrl(unittest.TestCase):
+    """`postgres://user:password@host/db` is how half the world writes its database
+    credentials into a config file, and the seam let it straight through to six companies."""
+
+    def hit(self, text):
+        return any(f.rule == "url credentials" for f in redact.scan(text))
+
+    def test_the_common_shapes_are_caught(self):
+        for t in ("postgres://user:s3cretpw@db.internal:5432/prod",
+                  "DATABASE_URL=mysql://root:hunter2@10.0.0.5/app",
+                  "amqp://guest:guest@rabbit:5672//",
+                  "mongodb+srv://appuser:pw123@cluster0.mongodb.net/db",
+                  "redis://:justapassword@cache:6379"):     # redis: password, no username
+            with self.subTest(t):
+                self.assertTrue(self.hit(t), f"let through: {t}")
+
+    def test_ordinary_urls_are_not_secrets(self):
+        for t in ("http://localhost:8080/health",
+                  "https://api.example.com/v1?x=1",
+                  "git@github.com:user/repo.git",            # an @ but no scheme
+                  "http://user@host/path",                   # a user but no password
+                  "s3://bucket/key.txt",
+                  "# see https://docs.python.org/3/library/re.html"):
+            with self.subTest(t):
+                self.assertFalse(self.hit(t), f"false positive: {t}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

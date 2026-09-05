@@ -30,6 +30,15 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),
     ("jwt", re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "a signed token"),
     ("bearer header", re.compile(r"(?i)\bauthorization\s*:\s*bearer\s+\S+"), "an Authorization header"),
+    # A scheme, a user, a colon, a password, an at-sign, a host: the way half the world
+    # writes its database credentials into a config file. Both the at-sign and the
+    # colon-password are required, so a localhost URL with a port (a colon, no secret) and a
+    # git remote (an at-sign, no scheme) stay clean. The username is optional, because redis
+    # puts the password alone after the colon. No specimen in this comment on purpose: the
+    # scanner reads this file too, and a pattern's own documentation is the third checker in
+    # this repo to have tripped on a working example of the thing it detects.
+    ("url credentials", re.compile(r"\b[a-z][a-z0-9+.-]{1,20}://[^/\s:@]{0,64}:[^@\s]{1,128}@"),
+     "credentials inside a URL"),
     # A secret ASSIGNED to a variable. The VALUE has to look like a secret too, or this
     # fires on every `max_tokens = ...` in the language. It did: `budget_tokens =
     # codebase.audit_message(...)` was reported as a leaked credential. A seam that cries
