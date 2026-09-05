@@ -1702,6 +1702,26 @@ class ThePage(unittest.TestCase):
             self.assertNotEqual(sel, "sort",
                                 "a group toggle on the shared class clears the other group")
 
+    def test_model_output_is_escaped_before_it_reaches_the_page(self):
+        """Every string a model produced lands in innerHTML. One unescaped and the page is
+        executing whatever a free model felt like returning."""
+        h = self.page()
+        for expr in ("a.text", "ev.text", "r.text", "r.decision", "ev.reason", "f.reason"):
+            for m in re.finditer(re.escape("${" + expr + "}"), h):
+                ctx = h[max(0, m.start() - 60):m.start()]
+                self.assertIn("esc(", ctx + "${" + expr + "}",
+                              f"${{{expr}}} reaches the page unescaped")
+            # and the escaped form must actually appear somewhere
+            self.assertIn(f"esc({expr})", h, f"{expr} is never escaped anywhere")
+
+    def test_esc_neutralises_the_characters_that_open_a_tag(self):
+        h = self.page()
+        m = re.search(r"const esc = (.+?);\n", h, re.S)
+        self.assertIsNotNone(m)
+        body = m.group(1)
+        for ch in ("&", "<", ">"):
+            self.assertIn(ch, body, f"esc does not handle {ch}")
+
     def test_tags_are_balanced(self):
         """A half-applied edit left a stray closing tag inside the dialog."""
         h = self.page()

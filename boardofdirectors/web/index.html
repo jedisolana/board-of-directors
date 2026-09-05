@@ -722,6 +722,9 @@ function refreshMoney(){
 
 
 
+// `body` is HTML BY CONTRACT - callers pass <ul> and <b> deliberately - so every value
+// interpolated into it must already be escaped. Nothing enforces that, which makes it the one
+// place in this file where a future edit can open a hole quietly. Escape at the call site.
 function note(title, body, kind){
   const d = document.createElement("div");
   d.className = "turn"; 
@@ -1162,7 +1165,8 @@ $("#bReset").onclick = async () => {
 };
 $("#bRefresh").onclick = async () => {
   const r = await fetch("/api/state?refresh=1"); S = await r.json(); paint();
-  note("Model list refreshed", `${S.catalogue.free} free models right now, ${S.catalogue.origin}.`, "warn");
+  note("Model list refreshed",
+       `${S.catalogue.free} free models right now, ${esc(S.catalogue.origin)}.`, "warn");
 };
 // ---- audit code: a loader, not a harness. You pick the folder; the model never chooses.
 let scanned = null, sendAnyway = false, saveAnyway = false;
