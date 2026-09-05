@@ -90,7 +90,12 @@ def contained(root: str, rel: str) -> str:
     never went through the parser wrote anywhere on the machine.
     """
     root = os.path.abspath(os.path.expanduser(root))
-    if os.path.isabs(rel) or ".." in rel.replace("\\", "/").split("/"):
+    # A leading slash is an escape on every platform, and it is checked by hand: Python 3.13
+    # changed ntpath.isabs so that "/etc/passwd" is no longer absolute on Windows. The second
+    # guard below still caught it there - but a rule that depends on which Python you have is
+    # not a rule, and the message a person reads should not change with their interpreter.
+    if (rel.startswith(("/", "\\")) or os.path.isabs(rel)
+            or ".." in rel.replace("\\", "/").split("/")):
         raise Rejected(f"{rel}: path escapes the folder")
     full = os.path.abspath(os.path.join(root, rel))
     if os.path.commonpath([full, root]) != root:
