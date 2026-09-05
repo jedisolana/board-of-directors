@@ -40,7 +40,7 @@ def parse_model(name: str) -> dict:
     raw = (name or "board").strip()
     if not raw.lower().startswith("board"):
         return {"single": raw}
-    spec = {"single": None, "kind": "decide", "size": 5}
+    spec = {"single": None, "kind": "decide", "size": seats.DEFAULT_SEATS}
     for part in raw.split(":")[1:]:
         part = part.strip().lower()
         if part in ("decide", "make"):

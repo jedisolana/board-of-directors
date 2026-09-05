@@ -197,7 +197,7 @@ def _blind(answers: list[Answer]) -> tuple[str, dict[str, str]]:
 
 
 def ask(question: str, *, transport: Transport | None = None, models: list[dict] | None = None,
-        size: int = 5, minimum: int = 3, peer_review: bool = True,
+        size: int = seats.DEFAULT_SEATS, minimum: int = 3, peer_review: bool = True,
         live_catalogue: bool = True, kind: str = "decide", on_event=None,
         members: list[dict] | None = None, allow_paid: bool = False,
         tier: str | None = None) -> Session:
@@ -210,7 +210,7 @@ def ask(question: str, *, transport: Transport | None = None, models: list[dict]
 
 def ask_in_context(question: str, *, prior: list[dict] | None = None,
                    transport: Transport | None = None, models: list[dict] | None = None,
-                   size: int = 5, minimum: int = 3, peer_review: bool = True,
+                   size: int = seats.DEFAULT_SEATS, minimum: int = 3, peer_review: bool = True,
                    live_catalogue: bool = True, kind: str = "decide",
                    members: list[dict] | None = None, on_event=None,
                    allow_paid: bool = False, tier: str | None = None) -> Session:

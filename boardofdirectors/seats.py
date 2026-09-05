@@ -25,7 +25,13 @@ def _rank(m: dict) -> tuple:
             m["id"])
 
 
-def seat(models: list[dict], size: int = 5, need_json: bool = False,
+# The default board. Six rather than five: an even number cannot deadlock a jury the way a
+# tie sounds like it should, because this board reports a tie as SPLIT rather than resolving
+# it - so the useful property is BREADTH, and six covers six companies instead of five.
+DEFAULT_SEATS = 6
+
+
+def seat(models: list[dict], size: int = DEFAULT_SEATS, need_json: bool = False,
          prompt_tokens: int = 0, completion_tokens: int = 0,
          exclude: set[str] | None = None, allow_paid: bool = False,
          tier: str | None = None) -> list[dict]:

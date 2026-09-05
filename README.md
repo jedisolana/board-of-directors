@@ -67,7 +67,9 @@ panel of several **smaller** models beats one big judge — and the reason is th
 drawn from **disjoint model families**. That word carries the result. Seat three checkpoints
 of the same family and you haven't built a jury, you've built one model with a stutter.
 
-So it's enforced: **at most one seat per family.** Ask for more seats than there are families
+**Six seats by default**, and a `− 6 +` picker in the board panel. The ceiling is the number
+of *companies* with a usable model, not an arbitrary number — because it's enforced: **at most
+one seat per family.** Ask for more seats than there are families
 and you get fewer seats and a reason — never a padded board.
 
 ---

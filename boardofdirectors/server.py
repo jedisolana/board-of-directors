@@ -244,7 +244,7 @@ def _board(payload: dict, on_event=None) -> dict:
             return {"error": "paid seats not allowed on this send: "
                              + ", ".join(blocked) + f". {why}."}
     if not members:
-        members = seats.seat(models, size=int(payload.get("size", 5)),
+        members = seats.seat(models, size=int(payload.get("size", seats.DEFAULT_SEATS)),
                              tier=_tier(payload))
     try:
         seats.quorum(members, int(payload.get("minimum", 3)))
@@ -558,7 +558,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 want = payload.get("board") or config.board() or []
                 by_id = {m["id"]: m for m in mods}
                 members = [by_id[i] for i in want if i in by_id] or seats.seat(
-                    mods, size=int(payload.get("size", 5)), tier=_tier(payload))
+                    mods, size=int(payload.get("size", seats.DEFAULT_SEATS)),
+                    tier=_tier(payload))
                 if not _paid_ok(payload):
                     members = [m for m in members if m.get("free")]
                 smallest = min((m.get("context_length") or 0) for m in members) or None

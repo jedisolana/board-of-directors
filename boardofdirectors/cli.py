@@ -279,7 +279,8 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="board", description=__doc__)
     p.add_argument("--offline", action="store_true",
                    help="bundled catalogue and stub members -- no key, no network")
-    p.add_argument("--size", type=int, default=5, help="members when auto-picking (default 5)")
+    p.add_argument("--size", type=int, default=seats.DEFAULT_SEATS,
+                   help=f"members when auto-picking (default {seats.DEFAULT_SEATS})")
     p.add_argument("--minimum", type=int, default=3, help="members needed for a quorum (default 3)")
     sub = p.add_subparsers(dest="cmd")
 

@@ -63,6 +63,10 @@ First release.
 - Routers (`openrouter/*`) can never hold a seat: two of them can pick the same underlying
   model and one-seat-per-family would guarantee nothing.
 
+### The board
+- **Six seats by default**, with a picker. The ceiling is the number of companies available,
+  since one seat per family means there is no honest board bigger than that.
+
 ### Three model tiers
 - A **search box**, because 400 models in a scroller is not a way to find one.
 - Every paid model shows its price, plus what one call costs in cents, and a **cheapest** sort.
