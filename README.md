@@ -399,6 +399,15 @@ code. A tab that is empty says so rather than looking broken.
 
 ---
 
+## Removing it
+
+    pipx uninstall board-of-directors
+    rm -rf ~/.board-of-directors
+
+The second line is the one that matters: it deletes your saved key, the request ledger and
+your saved sessions. Uninstalling the program alone leaves them where they are, because a
+program should never delete your data on its way out — you do that, on purpose.
+
 ## Your key cannot end up in the repo
 
 It lives in `~/.board-of-directors/`, which is **not inside the project** — there is no path by
