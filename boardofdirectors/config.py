@@ -154,6 +154,40 @@ def set_api_key(key: str) -> str:
     return save(cfg)
 
 
+MGMT_ENV = "OPENROUTER_MANAGEMENT_KEY"
+
+
+def management_key() -> tuple[str | None, str]:
+    """The optional second credential that can READ your usage.
+
+    Kept separate from the inference key on purpose. A management key cannot make completions
+    but it can create and delete API keys, so it is more dangerous to hold and must be an
+    explicit, separate decision - never something acquired as a side effect of setting up.
+    """
+    env = os.environ.get(MGMT_ENV)
+    if env:
+        return env, f"${MGMT_ENV}"
+    key = load().get("management_key")
+    return (key, CONFIG) if key else (None, "not set")
+
+
+def set_management_key(key: str) -> str:
+    k = (key or "").strip()
+    if not k:
+        raise BadKey("nothing was entered")
+    if any(c.isspace() for c in k):
+        raise BadKey("this has spaces in it, so it cannot be a key")
+    cfg = load()
+    cfg["management_key"] = k
+    return save(cfg)
+
+
+def forget_management_key() -> None:
+    cfg = load()
+    cfg.pop("management_key", None)
+    save(cfg)
+
+
 def forget_api_key() -> None:
     cfg = load()
     cfg.pop("api_key", None)

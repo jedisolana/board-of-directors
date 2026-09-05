@@ -23,7 +23,7 @@ import threading
 import time
 import webbrowser
 
-from . import board, budget, catalogue, codebase, config, redact, seats, sessions, usage
+from . import board, budget, catalogue, codebase, config, redact, seats, sessions, truecount, usage
 from .transport import OfflineTransport, OpenRouterTransport
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -71,10 +71,26 @@ def _transport(offline: bool):
     return OpenRouterTransport(key, app_title="Board of Directors"), True
 
 
+TRUE_TTL = 60          # analytics is a real request; the header polls far more often
+
+
+def _true_calls() -> tuple[int | None, str]:
+    mk, _ = config.management_key()
+    if not mk:
+        return None, "no management key set"
+    now = time.time()
+    if now - _CACHE.get("true_at", 0) < TRUE_TTL and "true" in _CACHE:
+        return _CACHE["true"], _CACHE.get("true_why", "")
+    n, why = truecount.requests_today(mk)
+    _CACHE["true"], _CACHE["true_why"], _CACHE["true_at"] = n, why, now
+    return n, why
+
+
 def _state() -> dict:
     key, where = config.api_key()
     models = _models()
-    st = usage.status()
+    true_n, true_why = _true_calls()
+    st = usage.status(true_calls=true_n)
     saved = config.board() or []
     seatable = catalogue.deliberative(models)
     return {
@@ -87,7 +103,9 @@ def _state() -> dict:
         "board": saved,
         "tier_source": config.tier_source(),
         "build": build_stamp(),
+        "management_key_set": bool(config.management_key()[0]),
         "usage": {"calls": st.calls, "since_reset": st.since_reset,
+                  "source": st.source, "source_why": true_why,
                   "failed": st.failed, "provider_busy": st.provider_busy,
                   "allowance": st.allowance,
                   "remaining": st.remaining, "measured": st.measured,
@@ -276,6 +294,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._json({"error": "no such session"})
                 return self._json({"markdown": sessions.as_markdown(doc),
                                    "filename": _slug(doc.get("title", "session")) + ".md"})
+            if self.path == "/api/mgmt_key":
+                raw = payload.get("key", "")
+                if not raw.strip():
+                    config.forget_management_key()
+                    _CACHE.pop("true", None)
+                    _CACHE.pop("true_at", None)
+                    return self._json(_state())
+                try:
+                    config.set_management_key(raw)
+                except config.BadKey as e:
+                    return self._json({"bad_key": str(e), **_state()})
+                _CACHE.pop("true_at", None)
+                n, why = _true_calls()
+                st = _state()
+                st["checked"] = why
+                st["true_calls"] = n
+                return self._json(st)
             if self.path == "/api/usage/reset":
                 was = usage.reset_today()
                 return self._json({"discarded": was, **_state()})

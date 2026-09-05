@@ -194,7 +194,24 @@ independence and routes around a slow provider — **it does not raise the ceili
 read that spreading a board across many free models multiplies your free capacity, that's
 wrong, and this won't tell you it.
 
-### The counter has to guess, and says so
+### The counter can be exact, if you let it
+
+An ordinary inference key cannot see its own usage — so by default the meter counts its own
+calls and labels the figure **estimated**.
+
+But the real number does exist. `/api/v1/analytics/query` serves a `request_count` metric, and
+answers an ordinary key with `403 — "Only management keys can access analytics"`. Add an
+optional **management key** (from `openrouter.ai/settings/management-keys`) and the meter
+reads OpenRouter's own count instead of guessing.
+
+**Read the warning before you do.** A management key cannot make completions, but it *can*
+create and delete your API keys. So it is opt-in, stored separately from the inference key,
+and **only ever sent to the analytics endpoint, only to read**. There is a test that parses
+this module and fails if any URL in it is anything but `/analytics/query`.
+
+Without one, everything works exactly as before.
+
+### And when it has to guess, it says so
 
 You can't ask how many free requests you have left. OpenRouter's own docs: *"Successful
 inference responses do not include `X-RateLimit-*` headers."* And `/api/v1/key` reports
@@ -266,7 +283,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-85 tests, no network, no dependencies. Most of them are failure paths, because a board that
+97 tests, no network, no dependencies. Most of them are failure paths, because a board that
 works when every model answers is the easy half. They cover what happens when a member is
 throttled, when the seam sees a key, when the pool has no independent members left, when two
 consoles write the counter at once — and, after being caught by them the hard way, whether the

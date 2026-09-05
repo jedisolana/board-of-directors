@@ -272,6 +272,20 @@
       <button class="mode" id="tYes">yes &mdash; 1000/day</button>
     </div>
   </div>
+  <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:4px">
+    <h3 style="font-size:13px;margin:0 0 6px">Exact usage <span style="color:var(--dimmer);
+        font-weight:400">— optional</span></h3>
+    <p style="margin:0 0 10px">An ordinary key cannot see its own usage, so the meter counts
+       our calls and says <b>estimated</b>. A <b>management key</b> can read OpenRouter's own
+       analytics and make it exact. Separate credential, from
+       <b>openrouter.ai/settings/management-keys</b>.</p>
+    <p style="margin:0 0 10px;color:var(--warn)">It cannot make completions — but it
+       <b>can create and delete your API keys</b>. This program only ever sends it to the
+       analytics endpoint, and only to read. Leave it blank if you would rather not.</p>
+    <input id="mgmtInput" type="password" placeholder="management key (optional)"
+           autocomplete="off" spellcheck="false">
+    <div id="mgmtState" style="font-size:11.5px;color:var(--dimmer);margin:-6px 0 4px"></div>
+  </div>
   <div class="actions">
     <button id="keyCancel">cancel</button>
     <button class="primary" id="keySave">save</button>
@@ -337,6 +351,16 @@ function paintHeader(){
                          : u.since_reset ? `${u.calls} since reset`
                          : `${u.calls} / ${u.allowance}`;
   $("#hUse").style.color = over ? "var(--warn)" : u.since_reset ? "var(--warn)" : "";
+  const src = {analytics: "exact - OpenRouter's own analytics",
+               "429": "exact - OpenRouter said so on a 429",
+               estimate: "estimated - counts this program's own calls"}[u.source] || "";
+  $("#hUse").parentElement.querySelector("i").textContent =
+      u.source === "analytics" ? "today · exact" : "today";
+  if(u.source === "analytics"){
+    $("#hUse").textContent = `${u.calls} / ${u.allowance}`;
+    $("#hUse").style.color = "var(--good)";
+  }
+  $("#hUse").title = src + (u.source_why ? ` (${u.source_why})` : "");
   $("#hUse").parentElement.title = u.since_reset
     ? "Counting from a reset. Clearing our count gave back none of OpenRouter's allowance, "
       + "and what was spent before the reset cannot be recovered - so the day's true "
@@ -740,7 +764,7 @@ $("#codePath").onkeydown = e => { if(e.key === "Enter"){ e.preventDefault(); doS
 $("#codeOne").onclick = () => sendCode(false);
 $("#codeBoard").onclick = () => sendCode(true);
 
-$("#bKey").onclick = () => { paintKeyState(); saveAnyway = false;
+$("#bKey").onclick = () => { paintKeyState(); paintMgmtState(); saveAnyway = false;
                              $("#keyErr").style.display="none"; $("#keyOk").style.display="none";
                              $("#tierAsk").style.display = (S && S.tier_source === "OpenRouter") ? "none" : "";
                              $("#dKey").showModal(); };
@@ -752,6 +776,13 @@ $("#keyEye").onclick = () => {
   i.type = i.type === "password" ? "text" : "password";
   $("#keyEye").textContent = i.type === "password" ? "show" : "hide";
 };
+function paintMgmtState(){
+  const u = (S && S.usage) || {};
+  $("#mgmtState").textContent = !S ? ""
+    : S.management_key_set
+      ? (u.source === "analytics" ? "set — the meter is exact" : `set — but ${u.source_why||"not readable"}`)
+      : "not set — the meter stays an estimate";
+}
 function paintKeyState(){
   $("#keyState").textContent = S && S.key_set
       ? `a key is saved: ${S.key_masked} — entering a new one replaces it`
@@ -801,6 +832,21 @@ $("#keySave").onclick = async () => {
       return;
     }
   }
+  const mk = $("#mgmtInput").value;
+  if(mk.trim()){
+    const m = await api("/api/mgmt_key", {key: mk});
+    $("#mgmtInput").value = "";
+    if(m.bad_key){
+      $("#keyErr").innerHTML = `<b>Management key not saved</b>${esc(m.bad_key)}.`;
+      $("#keyErr").style.display = "block"; return;
+    }
+    S = m; paintMgmtState();
+    note(m.usage.source === "analytics" ? "Exact usage on" : "Management key saved",
+         m.usage.source === "analytics"
+           ? `The meter now reads OpenRouter's own count: <b>${m.usage.calls}</b> today.`
+           : `Saved, but analytics did not answer: ${esc(m.usage.source_why||"")}. `
+             + `The meter stays an estimate.`, "warn");
+  }
   S = await api("/api/tier", {usd:tier});
   $("#keyInput").value = ""; $("#keyInput").type = "password"; $("#keyEye").textContent = "show";
   $("#dKey").close(); paint();
@@ -815,7 +861,7 @@ $("#keySave").onclick = async () => {
              .sort((a,b) => b.score.coding - a.score.coding)[0]?.id
           || S.models.find(m => m.seatable)?.id || null;
   paint();
-  paintKeyState();
+  paintKeyState(); paintMgmtState();
   await paintSessions();
   if(!S.key_set) $("#dKey").showModal();
   $("#input").focus();

@@ -49,6 +49,9 @@ First release.
 - The tally persists in saved sessions and in exported minutes.
 
 ### Honest metering
+- Optional **management key** makes the request meter exact, reading OpenRouter's own
+  analytics instead of counting locally. Opt-in, stored separately, and only ever sent to the
+  analytics endpoint to read.
 - Retries no longer count as separate requests, and a 429 from an upstream **provider** is
   told apart from OpenRouter's own limit — it costs nothing and does not move the meter.
 - `board reset-count` (and a button) starts the meter clean, because a count that was already
@@ -62,5 +65,5 @@ First release.
 - Renaming the project carries an existing install's key, tier and call count across.
 
 ### Under it
-- Standard library only. 85 tests, no network. Ruff clean. CI on Ubuntu and macOS across
+- Standard library only. 97 tests, no network. Ruff clean. CI on Ubuntu and macOS across
   Python 3.10, 3.12 and 3.13.

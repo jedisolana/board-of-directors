@@ -120,6 +120,7 @@ class Status:
     day: str
     calls: int
     since_reset: bool
+    source: str          # "estimate" | "429" | "analytics"
     failed: int
     provider_busy: int
     per_model: dict
@@ -168,7 +169,8 @@ def reset_today(day: str | None = None) -> dict:
     return was
 
 
-def status(tier_usd: float | None = None) -> Status:
+def status(tier_usd: float | None = None, true_calls: int | None = None) -> Status:
+    """`true_calls`, when given, is OpenRouter's own figure and outranks everything here."""
     from .budget import Budget
     d = _load()
     day = _today()
@@ -191,8 +193,19 @@ def status(tier_usd: float | None = None) -> Status:
     # seeing - it means the allowance is not what we think, or something else is using the
     # key - and clamping it here would hide the very thing that needs explaining. The display
     # is where an over-count gets said in words.
-    return Status(day=day, calls=rec["calls"], since_reset=day in (d.get("reset_days") or {}),
+    source = "estimate"
+    if measured:
+        source = "429"
+    if true_calls is not None:
+        # OpenRouter's own count. It ends the guessing entirely - including after a reset,
+        # because the truth does not care what we discarded.
+        rec = dict(rec, calls=true_calls)
+        remaining = max(0, allowance - true_calls)
+        measured = True
+        source = "analytics"
+    return Status(day=day, calls=rec["calls"],
+                  since_reset=(day in (d.get("reset_days") or {})) and source != "analytics",
                   failed=rec["failed"], provider_busy=rec.get("provider_busy", 0),
                   per_model=rec.get("models", {}), allowance=allowance,
                   remaining=remaining, measured=measured, tier_usd=tier_usd,
-                  resets_in=_resets_in())
+                  source=source, resets_in=_resets_in())

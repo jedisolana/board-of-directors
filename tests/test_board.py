@@ -4,6 +4,7 @@ A board that works when every model answers is easy. The whole value of this thi
 does when a member is throttled, when the seam sees a key, or when the pool has no
 independent members left -- so that is what most of these check.
 """
+import datetime
 import importlib
 import os
 import re
@@ -14,7 +15,17 @@ import time
 import typing
 import unittest
 
-from boardofdirectors import board, budget, catalogue, config, redact, seats, sessions, usage
+from boardofdirectors import (
+    board,
+    budget,
+    catalogue,
+    config,
+    redact,
+    seats,
+    sessions,
+    truecount,
+    usage,
+)
 from boardofdirectors.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
 
 
@@ -747,6 +758,120 @@ class TheOutputCap(unittest.TestCase):
         m = {"id": "a/big", "max_completion_tokens": 230400, "supported_parameters": ["max_tokens"]}
         body = OpenRouterTransport._payload(m, [], False, 256, 0.5)
         self.assertEqual(body["max_tokens"], 256)
+
+
+class TheTrueCount(unittest.TestCase):
+    """An inference key cannot see its own usage. A management key can.
+
+    /api/v1/analytics/query serves a request_count metric and answers 403 to an ordinary key:
+    "Only management keys can access analytics". So the exact number is obtainable, with a
+    second credential the user opts into.
+    """
+
+    def test_a_failure_is_never_reported_as_zero(self):
+        """"We could not read it" must not become "you have used nothing" - the worst
+        direction for a quota meter to be wrong in."""
+        n, why = truecount.requests_today("")
+        self.assertIsNone(n)
+        self.assertIn("no management key", why)
+
+    def test_the_day_window_is_a_full_utc_day(self):
+        start, end = truecount._utc_day_bounds(datetime.date(2026, 9, 4))
+        self.assertEqual(start, "2026-09-04T00:00:00Z")
+        self.assertEqual(end, "2026-09-05T00:00:00Z")
+
+    def test_the_management_key_is_only_ever_sent_to_analytics(self):
+        """It can create and DELETE API keys. A credential with that power must never be one
+        keystroke from exercising it, so nothing in this module may touch a key route."""
+        # Checked as CODE, not as prose. A first version of this searched the whole file for
+        # the word "DELETE" and failed on the docstring that warns about deletion - the same
+        # trap as a secret-scanner tripping on its own example.
+        import ast
+        with open(truecount.__file__) as fh:
+            tree = ast.parse(fh.read())
+        # Docstrings are string constants too, and this module's own docstring names
+        # openrouter.ai twice while explaining the danger. Third time today that prose has
+        # broken a checker: exclude them and look only at strings the code uses.
+        doctexts = {ast.get_docstring(n, clean=False) for n in ast.walk(tree)
+                    if isinstance(n, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                                      ast.ClassDef))}
+        urls = [n.value for n in ast.walk(tree)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                and "openrouter.ai" in n.value and n.value not in doctexts]
+        self.assertTrue(urls, "no endpoint found at all")
+        for u in urls:
+            self.assertTrue(u.endswith("/analytics/query"),
+                            f"the management key must only ever reach analytics, not {u}")
+        methods = [kw.value.value for n in ast.walk(tree)
+                   if isinstance(n, ast.Call) for kw in getattr(n, "keywords", [])
+                   if kw.arg == "method" and isinstance(kw.value, ast.Constant)]
+        self.assertEqual([m for m in methods if m not in ("GET", "POST")], [],
+                         "no destructive HTTP method may appear here")
+
+    def test_the_truth_outranks_the_estimate_and_says_so(self):
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            importlib.reload(usage)
+            for _ in range(9):
+                usage.record("a/one", ok=True)
+            self.assertEqual(usage.status(0).source, "estimate")
+            st = usage.status(0, true_calls=31)
+            self.assertEqual((st.calls, st.remaining, st.source), (31, 19, "analytics"))
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+            importlib.reload(usage)
+
+    def test_the_truth_overrides_a_reset_too(self):
+        """A reset discards what WE counted. It cannot discard what actually happened."""
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            importlib.reload(usage)
+            usage.record("a/one", ok=True)
+            usage.reset_today()
+            self.assertTrue(usage.status(0).since_reset)
+            st = usage.status(0, true_calls=12)
+            self.assertFalse(st.since_reset)
+            self.assertEqual(st.calls, 12)
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
+            importlib.reload(usage)
+
+    def test_a_management_key_is_stored_separately_from_the_inference_key(self):
+        home = tempfile.mkdtemp()
+        old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = home
+        try:
+            importlib.reload(config)
+            config.set_api_key("sk-or-v1-" + "a" * 64)
+            config.set_management_key("mgmt-" + "b" * 40)
+            self.assertTrue(config.api_key()[0].startswith("sk-or-v1-"))
+            self.assertTrue(config.management_key()[0].startswith("mgmt-"))
+            config.forget_management_key()
+            self.assertIsNone(config.management_key()[0])
+            self.assertIsNotNone(config.api_key()[0], "forgetting one must not drop the other")
+        finally:
+            if old is None:
+                os.environ.pop("BOARD_HOME", None)
+            else:
+                os.environ["BOARD_HOME"] = old
+            shutil.rmtree(home, ignore_errors=True)
+            importlib.reload(config)
 
 
 class ResettingTheCount(unittest.TestCase):
