@@ -39,6 +39,7 @@ from . import (
     truecount,
     usage,
 )
+from . import transport as transport_mod
 from .transport import OfflineTransport, OpenRouterTransport
 
 WEB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -209,6 +210,19 @@ def _single(payload: dict) -> dict:
         # The code goes in ALONGSIDE what was typed, never instead of it. Replacing the last
         # message silently drops the actual question whenever a folder is attached.
         msgs = [*msgs, {"role": "user", "content": code}]
+    if not model.get("free"):
+        # A paid turn is a session of one. It had the permission gate and no cost check at all:
+        # a single question to a $75/M model could bill 32k output tokens against a $0.25 cap.
+        cap = config.spend_cap()
+        pt = max(cost.DEFAULT_PROMPT_TOKENS,
+                 sum(len(m.get("content", "")) for m in msgs) // codebase.CHARS_PER_TOKEN)
+        est = cost.session([model], None, peer_review=False, prompt_tokens=pt)
+        if cost.over_cap(est, cap):
+            return {"error": f"this turn would cost {est.human()}, over your ${cap:,.2f} cap."}
+        refusal, transport, _oc = _fence([model], None, transport, cap,
+                                         peer_review=False, prompt_tokens=pt)
+        if refusal:
+            return {"error": refusal}
     r = transport.ask(model, msgs)
     if not r.ok:
         return {"mode": "single", "model": mid, "failed": True, "reason": r.reason, "calls": 1}
@@ -237,6 +251,26 @@ def _tier(payload: dict) -> str:
         return "free"
     asked = payload.get("tier")
     return asked if asked in ("free", "paid", "both") and asked == stored else stored
+
+
+def _fence(members: list[dict], chair: dict | None, transport, cap: float, *,
+           peer_review: bool, prompt_tokens: int) -> tuple[str | None, object, int | None]:
+    """Make the cap a wall on the output side. Returns (refusal, transport, lowest ceiling).
+
+    The estimate has already passed. This turns what is left of the cap into a max_tokens per
+    paid model and wraps the transport so the API cannot be told otherwise. If the ceilings
+    would have to go below the floor to fit, the session is refused with the real worst case
+    - a short answer is still an answer, a stub is not.
+    """
+    if all(m.get("free") for m in [*members, *([chair] if chair else [])]):
+        return None, transport, None
+    ceilings, worst = cost.fit_under_cap(members, chair, cap, peer_review=peer_review,
+                                         prompt_tokens=prompt_tokens)
+    if worst > cap + 1e-9:
+        return (f"this board cannot fit under your ${cap:,.2f} cap even with short answers: "
+                f"the prompts alone plus {cost.OUTPUT_FLOOR}-token replies come to about "
+                f"${worst:,.2f}. Raise the cap or seat cheaper models."), transport, None
+    return None, transport_mod.Capped(transport, ceilings), (min(ceilings.values()) if ceilings else None)
 
 
 def _board(payload: dict, on_event=None) -> dict:
@@ -304,6 +338,11 @@ def _board(payload: dict, on_event=None) -> dict:
                          f"${cap:,.2f} cap. Raise the cap or seat cheaper models."}
 
     transport, live = _transport(payload.get("offline", False))
+    refusal, transport, output_cap = _fence(members, chair_guess, transport, cap,
+                                            peer_review=bool(payload.get("peer_review", True)),
+                                            prompt_tokens=prompt_tokens)
+    if refusal:
+        return {"error": refusal}
     redact.check("\n".join(m.get("content", "") for m in history))
     prior = history[:-1]
 
@@ -315,6 +354,9 @@ def _board(payload: dict, on_event=None) -> dict:
                              send_anyway=bool(payload.get("send_anyway")))
     return {
         "mode": "board", "live": live, "kind": s.kind, "estimated_usd": est.usd,
+        # the lowest max_tokens any paid member was held to, so the page can say answers were
+        # kept short to fit the cap rather than let a cut-off reply look like the model's choice
+        "output_cap": output_cap,
         # the members the SESSION used, not the ones that were requested
         "members": [m["id"] for m in s.members],
         "chair": s.chair_model["id"],
@@ -526,12 +568,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._json({"markdown": sessions.as_markdown(doc),
                                    "filename": _slug(doc.get("title", "session")) + ".md"})
             if self.path == "/api/paid":
-                if "tier" in payload:
-                    config.set_model_tier(payload["tier"])
-                elif "on" in payload:
-                    config.set_model_tier("both" if payload["on"] else "free")
-                if "cap" in payload:
-                    config.set_spend_cap(float(payload["cap"]))
+                # Settings that gate money are checked as INPUT, and a bad one is the caller's
+                # mistake (400), not a crash (500). "1e400" used to store infinity as the cap.
+                try:
+                    if "tier" in payload:
+                        config.set_model_tier(payload["tier"])
+                    elif "on" in payload:
+                        config.set_model_tier("both" if payload["on"] else "free")
+                    if "cap" in payload:
+                        config.set_spend_cap(float(payload["cap"]))
+                except (TypeError, ValueError) as e:
+                    return self._json({"error": f"not saved: {e}", **_state()}, 400)
                 _CACHE.pop("models", None)          # the seatable set just changed
                 _CACHE.pop("cr_at", None)           # and re-read the balance
                 return self._json(_state())
@@ -585,6 +632,33 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 if members and not _paid_ok(payload):
                     members = [m for m in members if m.get("free")] or None
                 transport, _ = _transport(payload.get("offline", False))
+                if _paid_ok(payload):
+                    # Paid consent on this door had a permission gate and no wall. Seat the board
+                    # here so the same cap check and the same ceilings apply as in the console.
+                    spec = openai_api.parse_model(payload.get("model", "board"))
+                    cap = config.spend_cap()
+                    text = "\n".join(m.get("content", "") for m in (payload.get("messages") or []))
+                    pt = max(cost.DEFAULT_PROMPT_TOKENS, len(text) // codebase.CHARS_PER_TOKEN)
+                    if spec.get("single"):
+                        one = by_id.get(spec["single"])
+                        fenced, ch_guess, pr = ([one] if one else []), None, False
+                    else:
+                        fenced = members or seats.seat(mods, size=spec["size"], allow_paid=True, tier=_tier(payload))
+                        members = fenced
+                        pr = bool(payload.get("peer_review", True))
+                        try:
+                            ch_guess = seats.chair(mods, fenced, allow_paid=True, tier=_tier(payload))
+                        except seats.NoQuorum:
+                            ch_guess = None
+                    if fenced:
+                        est = cost.session(fenced, ch_guess, peer_review=pr, prompt_tokens=pt)
+                        if cost.over_cap(est, cap):
+                            return self._json(openai_api.error(
+                                f"this would cost {est.human()}, over your ${cap:,.2f} cap", "over_cap", 402)[0], 402)
+                        refusal, transport, _oc = _fence(fenced, ch_guess, transport, cap,
+                                                         peer_review=pr, prompt_tokens=pt)
+                        if refusal:
+                            return self._json(openai_api.error(refusal, "over_cap", 402)[0], 402)
                 body, status = openai_api.run(
                     payload, mods, transport, members=members,
                     minimum=int(payload.get("minimum", 3)),
@@ -615,6 +689,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 body = codebase.pack(sc, int(smallest * 0.6) if smallest else None)
                 msg = patch.WRITE_PROMPT.format(task=payload.get("task", ""), code=body)
                 transport, _ = _transport(payload.get("offline", False))
+                if any(not m.get("free") for m in members):
+                    # the same wall as the board, at the size the code actually is
+                    cap = config.spend_cap()
+                    pt = max(cost.DEFAULT_PROMPT_TOKENS, len(msg) // codebase.CHARS_PER_TOKEN)
+                    try:
+                        ch_guess = seats.chair(mods, members, allow_paid=_paid_ok(payload), tier=_tier(payload))
+                    except seats.NoQuorum:
+                        ch_guess = None
+                    pr = bool(payload.get("peer_review", True))
+                    est = cost.session(members, ch_guess, peer_review=pr, prompt_tokens=pt)
+                    if cost.over_cap(est, cap):
+                        return self._json({"error": f"this change would cost {est.human()}, over your "
+                                                    f"${cap:,.2f} cap. Raise the cap or seat cheaper models."})
+                    refusal, transport, _oc = _fence(members, ch_guess, transport, cap,
+                                                     peer_review=pr, prompt_tokens=pt)
+                    if refusal:
+                        return self._json({"error": refusal})
                 s_ = board.ask(msg, transport=transport, models=mods, members=members,
                                minimum=int(payload.get("minimum", 3)), kind="make",
                                peer_review=bool(payload.get("peer_review", True)),

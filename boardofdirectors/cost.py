@@ -83,6 +83,63 @@ def session(members: list[dict], chair: dict | None = None, *, peer_review: bool
                     per_model=tuple(sorted(rows, key=lambda r: -r[1])))
 
 
+OUTPUT_FLOOR = 256      # fewer tokens than this is not an answer; refuse the session instead
+
+
+def output_ceiling(model: dict, usd_budget: float, floor: int = OUTPUT_FLOOR) -> int | None:
+    """The max_tokens for ONE call so that its output cannot bill more than `usd_budget`.
+
+    None for a free model: nothing to enforce. The model's own completion limit is the upper
+    bound; `floor` is the lower one - a ceiling below it means the budget cannot buy an answer,
+    and the caller should refuse the session rather than send a request that returns a stub.
+    """
+    if model.get("free"):
+        return None
+    pout = model.get("price_out")
+    if not pout:
+        return None
+    allowed = int(usd_budget / pout * 1e6)
+    own = model.get("max_completion_tokens") or 8192
+    return max(floor, min(allowed, own))
+
+
+def fit_under_cap(members: list[dict], chair: dict | None, cap_usd: float, *,
+                  peer_review: bool = True, prompt_tokens: int = DEFAULT_PROMPT_TOKENS,
+                  floor: int = OUTPUT_FLOOR) -> tuple[dict[str, int], float]:
+    """Per paid model, the max_tokens that keeps the whole session under the cap - ENFORCED,
+    not estimated - and the worst case the session can then bill.
+
+    The estimate assumes 700 output tokens a call. The transport sends the model's own limit,
+    32k on the big ones, and nothing sat between the two: three premium members were checked
+    at $0.43 and permitted to bill $14.75. So: pay for the prompts first, split what is left
+    of the cap evenly across the paid calls, and turn each share into a token ceiling. If a
+    share falls below `floor`, the worst case comes back above the cap and the caller refuses.
+    """
+    calls = [(m, 1 + (1 if peer_review else 0)) for m in members]
+    if chair is not None:
+        calls.append((chair, 1))
+    prompt_cost = 0.0
+    paid_calls = 0
+    for m, n in calls:
+        pt = prompt_tokens * (len(members) if m is chair else 1)
+        prompt_cost += model_cost(m, pt, 0) * n
+        if not m.get("free"):
+            paid_calls += n
+    headroom = max(0.0, cap_usd - prompt_cost)
+    per_call = headroom / paid_calls if paid_calls else 0.0
+    ceilings: dict[str, int] = {}
+    worst = prompt_cost
+    for m, n in calls:
+        if m.get("free"):
+            continue
+        c = output_ceiling(m, per_call, floor=floor)
+        if c is None:
+            continue
+        ceilings[m["id"]] = min(c, ceilings.get(m["id"], c))
+        worst += (c / 1e6) * (m.get("price_out") or 0.0) * n
+    return ceilings, round(worst, 6)
+
+
 def over_cap(estimate: Estimate, cap_usd: float | None) -> bool:
     """A cap is a wall, not a warning. None means no cap set.
 

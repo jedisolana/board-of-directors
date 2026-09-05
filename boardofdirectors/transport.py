@@ -103,6 +103,25 @@ class Transport:
         raise NotImplementedError
 
 
+class Capped(Transport):
+    """A transport that will not let a paid model write past its ceiling.
+
+    The ceilings come from `cost.fit_under_cap`; this is the part that makes the spend cap a
+    wall on the output side. Free models pass through untouched, and a caller's own smaller
+    max_tokens is respected - the ceiling only ever lowers.
+    """
+
+    def __init__(self, inner: Transport, ceilings: dict[str, int]):
+        self.inner = inner
+        self.ceilings = dict(ceilings)
+
+    def ask(self, model: dict, messages: list[dict], **kw) -> Answer | Failure:
+        c = self.ceilings.get(model["id"])
+        if c is not None:
+            kw["max_tokens"] = min(kw["max_tokens"], c) if kw.get("max_tokens") else c
+        return self.inner.ask(model, messages, **kw)
+
+
 class OfflineTransport(Transport):
     """A deterministic stand-in so the whole board runs with no key and no network.
 

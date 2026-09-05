@@ -900,6 +900,13 @@ function boardTurn(){
     },
     finish(r){
       stage.remove();
+      if(r.output_cap && r.output_cap < 700){
+        const el = document.createElement("div");
+        el.className = "note warn";
+        el.innerHTML = `<b>Answers were capped at ${r.output_cap} tokens</b> to keep this session under your `
+          + `$${(S && S.spend_cap != null ? Number(S.spend_cap) : 0).toFixed(2)} cap. A cut-off reply here is the cap, not the model.`;
+        d.querySelector("[data-members]").after(el);
+      }
       const w = d.querySelector("[data-who]");
       w.textContent = w.textContent.replace(/\d+ seats/, `${r.answers.length} answered`)
                       + (r.rankings_failed ? ` · ${r.rankings} of ${r.rankings + r.rankings_failed} ranked` : "")

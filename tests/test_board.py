@@ -44,7 +44,13 @@ from boardofdirectors import (
     truecount,
     usage,
 )
-from boardofdirectors.transport import Answer, Failure, OfflineTransport, OpenRouterTransport
+from boardofdirectors.transport import (
+    Answer,
+    Capped,
+    Failure,
+    OfflineTransport,
+    OpenRouterTransport,
+)
 
 _real_urlopen = _ur.urlopen
 
@@ -2077,7 +2083,7 @@ class NeverSpendsWithoutPermission(unittest.TestCase):
         outer = self
 
         class Spy:
-            def ask(self, m, msgs):
+            def ask(self, m, msgs, **kw):          # Transport.ask takes **kw; the fence uses it
                 outer.calls.append(m["id"])
                 return board.Answer(model=m["id"], text="hi")
 
@@ -2931,6 +2937,169 @@ class TheWallSeesTheWholeMessage(unittest.TestCase):
         r = self.run_board()
         self.assertNotIn("error", r)
         self.assertLess(r["estimated_usd"], 0.25)
+
+
+class SettingsThatGateMoneyAreValidated(unittest.TestCase):
+    """"1e400" parsed to infinity and was stored as the cap - the wall removed by a typo. And a
+    bad tier or a non-numeric cap came back as a 500, which reads as a crash, not a mistake."""
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        self.srv = server._Server(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.addCleanup(self.srv.server_close)
+        self.addCleanup(self.srv.shutdown)
+
+    def tearDown(self):
+        if self.old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old
+        importlib.reload(config)
+
+    def post(self, body):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=30)
+        c.request("POST", "/api/paid", json.dumps(body), {"Content-Type": "application/json"})
+        r = c.getresponse()
+        return r.status, json.loads(r.read())
+
+    def test_infinity_is_not_a_cap(self):
+        for raw in ("1e400", "inf", "Infinity", float("inf"), "nan"):
+            with self.subTest(raw=raw):
+                status, body = self.post({"cap": raw})
+                self.assertEqual(status, 400, f"{raw!r} was accepted")
+                self.assertIn("error", body)
+                self.assertEqual(config.spend_cap(), 0.25, "the cap moved on bad input")
+
+    def test_bad_input_is_a_400_not_a_500(self):
+        for body in ({"tier": "xyz"}, {"tier": 5}, {"cap": "abc"}, {"tier": "PAID"}):
+            with self.subTest(body=body):
+                status, out = self.post(body)
+                self.assertEqual(status, 400)
+                self.assertIn("not saved", out["error"])
+        self.assertEqual(config.model_tier(), "free")
+
+    def test_good_input_still_works(self):
+        status, _ = self.post({"tier": "both", "cap": 1.5})
+        self.assertEqual(status, 200)
+        self.assertEqual((config.model_tier(), config.spend_cap()), ("both", 1.5))
+        status, _ = self.post({"cap": -3})
+        self.assertEqual((status, config.spend_cap()), (200, 0.0), "negative means locked, not refused")
+
+
+class TheWallHasAnOutputSide(unittest.TestCase):
+    """The estimate assumed 700 output tokens a call; the transport sent the model's own limit,
+    32k on the big ones. Three premium members were checked at $0.43 and permitted to bill
+    $14.75. The ceilings below are what the API is now told, and they are enforced."""
+
+    PREM = model("p/prem", free=False, price_in=15.0, price_out=75.0, out=32768)
+    CHEAP = model("c/cheap:free")
+
+    def test_ceilings_split_the_headroom_and_the_worst_case_is_the_cap(self):
+        members = [self.PREM, model("q/prem2", free=False, price_in=15.0, price_out=75.0, out=32768),
+                   model("r/prem3", free=False, price_in=15.0, price_out=75.0, out=32768)]
+        ceilings, worst = cost.fit_under_cap(members, self.CHEAP, 0.25, peer_review=True, prompt_tokens=1200)
+        self.assertEqual(set(ceilings), {m["id"] for m in members})
+        self.assertTrue(all(cost.OUTPUT_FLOOR <= c < 32768 for c in ceilings.values()), ceilings)
+        self.assertLessEqual(worst, 0.25 + 1e-6)
+        self.assertGreater(worst, 0.2, "the headroom was not used")
+
+    def test_a_cap_too_small_for_real_answers_is_refused_not_stubbed(self):
+        members = [self.PREM] * 3
+        ceilings, worst = cost.fit_under_cap(members, self.CHEAP, 0.15, peer_review=True, prompt_tokens=1200)
+        self.assertTrue(all(c == cost.OUTPUT_FLOOR for c in ceilings.values()))
+        self.assertGreater(worst, 0.15, "a session that cannot fit must come back over the cap")
+
+    def test_free_members_are_untouched(self):
+        ceilings, worst = cost.fit_under_cap([self.CHEAP, self.CHEAP], self.CHEAP, 0.25)
+        self.assertEqual(ceilings, {})
+        self.assertEqual(worst, 0.0)
+
+    def test_the_capped_transport_lowers_but_never_raises(self):
+        seen = {}
+
+        class Spy(OfflineTransport):
+            def ask(self, m, messages, **kw):
+                seen[m["id"]] = kw.get("max_tokens")
+                return super().ask(m, messages)
+
+        t = Capped(Spy(), {"p/prem": 300})
+        t.ask(self.PREM, [{"role": "user", "content": "x"}])
+        self.assertEqual(seen["p/prem"], 300)
+        t.ask(self.PREM, [{"role": "user", "content": "x"}], max_tokens=100)
+        self.assertEqual(seen["p/prem"], 100, "a caller's smaller limit was overridden")
+        t.ask(self.PREM, [{"role": "user", "content": "x"}], max_tokens=5000)
+        self.assertEqual(seen["p/prem"], 300, "the ceiling did not lower a bigger request")
+        t.ask(self.CHEAP, [{"role": "user", "content": "x"}])
+        self.assertIsNone(seen["c/cheap:free"], "a free model was capped")
+
+
+class EverySpendingPathIsFenced(unittest.TestCase):
+    """Driven through the server, because the fence is only real where the money leaves."""
+
+    PAID = model("costly/opus", free=False, price_in=15.0, price_out=75.0, out=32768, ctx=400_000)
+    FREE = tuple(model(f"f{i}/m:free", ctx=400_000) for i in range(4))
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.old = os.environ.get("BOARD_HOME")
+        os.environ["BOARD_HOME"] = self.home
+        importlib.reload(config)
+        self.old_cache = dict(server._CACHE)
+        server._CACHE["models"] = [self.PAID, *self.FREE]
+        server._CACHE["at"] = time.time() + 10_000
+        self.seen = {}
+        outer = self
+
+        class Spy(OfflineTransport):
+            def ask(self, m, messages, **kw):
+                outer.seen.setdefault(m["id"], []).append(kw.get("max_tokens"))
+                return super().ask(m, messages)
+
+        self.old_transport = server._transport
+        server._transport = lambda offline: (Spy(), True)
+        config.set_model_tier("both")
+        config.set_spend_cap(0.25)
+
+    def tearDown(self):
+        server._CACHE.clear()
+        server._CACHE.update(self.old_cache)
+        server._transport = self.old_transport
+        if self.old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self.old
+        importlib.reload(config)
+
+    def test_the_board_tells_the_api_a_ceiling_for_the_paid_member(self):
+        r = server._board({"allow_paid": True, "board": [self.PAID["id"], *(m["id"] for m in self.FREE[:2])],
+                           "messages": [{"role": "user", "content": "ship it?"}]})
+        self.assertNotIn("error", r, r.get("error"))
+        caps = [c for c in self.seen[self.PAID["id"]] if c is not None]
+        self.assertTrue(caps and all(cost.OUTPUT_FLOOR <= c < 32768 for c in caps), self.seen)
+        for m in self.FREE[:2]:
+            self.assertTrue(all(c is None for c in self.seen.get(m["id"], [])), "a free member was capped")
+        self.assertEqual(r["output_cap"], min(caps))
+
+    def test_a_single_paid_turn_is_fenced_too(self):
+        r = server._single({"allow_paid": True, "model": self.PAID["id"],
+                            "messages": [{"role": "user", "content": "hi"}]})
+        self.assertNotIn("error", r)
+        c = self.seen[self.PAID["id"]][0]
+        self.assertTrue(c is not None and cost.OUTPUT_FLOOR <= c < 32768, c)
+
+    def test_a_single_paid_turn_over_the_cap_is_refused_before_the_wire(self):
+        config.set_spend_cap(0.01)
+        r = server._single({"allow_paid": True, "model": self.PAID["id"],
+                            "messages": [{"role": "user", "content": "hi"}]})
+        self.assertIn("error", r)
+        self.assertEqual(self.seen, {}, "a refused turn still went to the wire")
 
 
 if __name__ == "__main__":

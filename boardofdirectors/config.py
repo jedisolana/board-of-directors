@@ -312,7 +312,13 @@ def spend_cap() -> float:
 
 
 def set_spend_cap(usd: float) -> None:
-    update(spend_cap_usd=max(0.0, float(usd)))
+    """A cap is a number of dollars. "1e400" parses to infinity and infinity is not a cap - it
+    is the wall removed by a typo. Not finite, not accepted; negative means zero, which is a lock."""
+    import math
+    v = float(usd)
+    if not math.isfinite(v):
+        raise ValueError("a spend cap has to be a finite number of dollars")
+    update(spend_cap_usd=max(0.0, v))
 
 
 def tier() -> float:
