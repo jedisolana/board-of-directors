@@ -87,6 +87,12 @@ First release.
   wrong is not repaired by counting correctly afterwards.
 - The ledger is never clamped; going past the allowance is said in words, not hidden.
 
+### An OpenAI-compatible endpoint
+- `POST /v1/chat/completions` with `model: "board"` — any OpenAI client gets a whole board's
+  decision in the shape it already parses. `board:make`, `board:3` select the shape.
+- `usage` reports **requests**, not guessed tokens. A `board` object carries every member's
+  answer, the tally, and who failed. No quorum is a `409`, not a confident `200`.
+
 ### Writing changes
 - Describe a task and the board **writes the fix**, returned as a diff per file with an apply
   button. Nothing is written until you press it, one file at a time.

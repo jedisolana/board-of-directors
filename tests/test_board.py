@@ -21,6 +21,7 @@ from boardofdirectors import (
     catalogue,
     config,
     cost,
+    openai_api,
     patch,
     redact,
     seats,
@@ -1142,6 +1143,84 @@ class ResettingTheCount(unittest.TestCase):
         usage.reset_today()
         self.assertEqual(usage.status(0).calls, 0)
         self.assertEqual(len([r for r in usage._load()["days"] if r == "2026-09-01"]), 1)
+
+
+class TheOpenAIEndpoint(unittest.TestCase):
+    """The library covers Python. Everything else had no way in but the page's internals.
+
+    So the board speaks the dialect every LLM tool already speaks: point any OpenAI-compatible
+    client at it, ask for the model `board`, and a whole board's decision comes back in the
+    shape the client already parses.
+    """
+
+    def run_it(self, payload, **kw):
+        return openai_api.run(payload, POOL, OfflineTransport(**kw.pop("t", {})), **kw)
+
+    def test_the_model_name_selects_the_shape(self):
+        self.assertEqual(openai_api.parse_model("board")["kind"], "decide")
+        self.assertEqual(openai_api.parse_model("board:make")["kind"], "make")
+        self.assertEqual(openai_api.parse_model("board:3")["size"], 3)
+        self.assertEqual(openai_api.parse_model("board:make:4"),
+                         {"single": None, "kind": "make", "size": 4})
+        self.assertEqual(openai_api.parse_model("a/b:free")["single"], "a/b:free")
+
+    def test_a_board_comes_back_as_a_chat_completion(self):
+        body, status = self.run_it({"model": "board:3",
+                                    "messages": [{"role": "user", "content": "Ship it?"}]})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["object"], "chat.completion")
+        self.assertTrue(body["choices"][0]["message"]["content"])
+        self.assertEqual(body["choices"][0]["finish_reason"], "stop")
+
+    def test_usage_reports_requests_not_guessed_tokens(self):
+        """A guess in the usage field would be read as a measurement. A board's real cost is
+        the number of calls it made, and that is the number a caller budgets against."""
+        body, _ = self.run_it({"model": "board:3", "messages": [{"role": "user", "content": "x"}]})
+        self.assertGreater(body["usage"]["requests"], 1)
+        self.assertEqual(body["usage"]["total_tokens"], 0)
+
+    def test_the_vote_and_the_members_travel_with_it(self):
+        body, _ = self.run_it({"model": "board:3", "messages": [{"role": "user", "content": "x"}]})
+        b = body["board"]
+        self.assertEqual(len(b["members"]), 3)
+        self.assertNotIn(b["chair"], b["members"])
+        self.assertTrue(b["tally"])
+        for a in b["answers"]:
+            self.assertIn(a["vote"], board.VOTES)
+
+    def test_a_member_that_failed_is_reported_not_folded_in(self):
+        """A caller needs to know the decision came from four models and not five."""
+        seated = seats.seat(POOL, size=4)[0]["id"]
+        body, _ = self.run_it({"model": "board:4", "messages": [{"role": "user", "content": "x"}]},
+                              t={"fail": {seated}})
+        self.assertEqual([f["model"] for f in body["board"]["failures"]], [seated])
+
+    def test_no_quorum_is_a_409_that_still_carries_the_answers(self):
+        body, status = self.run_it(
+            {"model": "board:4", "messages": [{"role": "user", "content": "x"}]},
+            t={"fail": {m["id"] for m in seats.seat(POOL, size=4)}})
+        self.assertEqual(status, 409)
+        self.assertEqual(body["error"]["type"], "no_quorum")
+        self.assertIn("board", body)
+
+    def test_a_plain_model_id_passes_straight_through(self):
+        body, status = self.run_it({"model": POOL[0]["id"],
+                                    "messages": [{"role": "user", "content": "x"}]})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["usage"]["requests"], 1)
+        self.assertNotIn("board", body)
+
+    def test_errors_use_the_shape_clients_already_parse(self):
+        body, status = self.run_it({"model": "nope/nope",
+                                    "messages": [{"role": "user", "content": "x"}]})
+        self.assertEqual(status, 404)
+        self.assertEqual(body["error"]["type"], "model_not_found")
+        body, status = self.run_it({"model": "board", "messages": []})
+        self.assertEqual(status, 400)
+
+    def test_the_model_list_offers_the_boards_first(self):
+        d = openai_api.model_list(POOL)["data"]
+        self.assertEqual([r["id"] for r in d[:3]], ["board", "board:make", "board:3"])
 
 
 class ProposedChanges(unittest.TestCase):

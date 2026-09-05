@@ -172,6 +172,62 @@ unknown cannot be consented to.
 
 ---
 
+## Calling it from anything, not just Python
+
+The server speaks the one dialect every LLM tool already speaks. Point any OpenAI-compatible
+client at it and ask for the model `board`:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8420/v1", api_key="unused")
+r = client.chat.completions.create(
+    model="board",
+    messages=[{"role": "user", "content": "Should we use Postgres or SQLite?"}],
+)
+print(r.choices[0].message.content)      # the chair's decision
+```
+
+```bash
+curl http://127.0.0.1:8420/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model": "board:3", "messages": [{"role": "user", "content": "Ship it?"}]}'
+```
+
+The **model name selects the shape**, not a model:
+
+| | |
+|---|---|
+| `board` | a jury — positions, blind ranking, a chair's decision |
+| `board:make` | a competition — attempts, ranked, the best one delivered |
+| `board:3` | three seats instead of five |
+| `board:make:4` | both |
+| any model id | passed straight through to that one model |
+
+`GET /v1/models` lists the boards first, then every seatable model, so a client's model picker
+shows them.
+
+### What it does not pretend
+
+A board is not a chat completion, and the differences are reported rather than flattened.
+
+**`usage` carries `requests`, not guessed tokens.** A guess in that field would be read as a
+measurement. A board's real cost is the number of calls it made.
+
+**A `board` object rides alongside the completion** with every member's answer, their votes,
+the tally, the chair, and — separately — anyone who failed. A client that ignores it gets a
+normal-looking completion; one that reads it can see the vote, and can see that the decision
+came from four models rather than five.
+
+**No quorum is a `409`**, with the answers still attached, rather than a confident-looking
+`200` from whoever got through.
+
+### There is no auth on it
+
+It binds to `127.0.0.1`, where there is nothing to authenticate against. That is also exactly
+why it must not be put on a network as it stands — anyone who can reach the socket can spend
+your OpenRouter balance.
+
 ## Writing your own transport
 
 ```python

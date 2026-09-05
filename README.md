@@ -25,6 +25,10 @@ opens a console in your browser, served from your own machine.
 
 Using it from your own code? → **[docs/library.md](docs/library.md)**
 
+Already have a bot? It speaks OpenAI — point any client at `http://127.0.0.1:8420/v1` and ask
+for the model **`board`**. A whole board's decision comes back in the shape your client
+already parses, with the vote attached.
+
 ---
 
 ## Here it is working

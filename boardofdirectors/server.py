@@ -30,6 +30,7 @@ from . import (
     codebase,
     config,
     cost,
+    openai_api,
     patch,
     redact,
     seats,
@@ -364,6 +365,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/v1/models"):
+            return self._json(openai_api.model_list(_models(), config.model_tier()))
         if self.path.startswith("/api/sessions"):
             return self._json({"sessions": sessions.listing()})
         if self.path.startswith("/api/projects"):
@@ -472,6 +475,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if self.path == "/api/usage/reset":
                 was = usage.reset_today()
                 return self._json({"discarded": was, **_state()})
+            if self.path in ("/v1/chat/completions", "/v1/completions"):
+                # The one dialect every LLM tool already speaks, so anything can use the board.
+                mods = _models()
+                want = payload.get("board") or config.board() or []
+                by_id = {m["id"]: m for m in mods}
+                members = [by_id[i] for i in want if i in by_id] or None
+                if members and not _paid_ok(payload):
+                    members = [m for m in members if m.get("free")] or None
+                transport, _ = _transport(payload.get("offline", False))
+                body, status = openai_api.run(
+                    payload, mods, transport, members=members,
+                    minimum=int(payload.get("minimum", 3)),
+                    allow_paid=_paid_ok(payload), tier=_tier(payload))
+                return self._json(body, status)
             if self.path == "/api/work":
                 # Propose changes to a folder. NOTHING is written here - this returns diffs.
                 sc = codebase.scan(payload["path"])
@@ -566,6 +583,7 @@ def serve(port: int = 8420, open_browser: bool = True) -> int:
     _models()
     with _Server(("127.0.0.1", port), Handler) as httpd:
         print(f"\n  Board of Directors -> {url}   (build {build_stamp()})")
+        print(f"  OpenAI-compatible  -> {url}v1   (model: board, board:make, board:3)")
         print("  local only: 127.0.0.1, your key stays on this machine.")
         print("  ctrl-c to stop.\n")
         if open_browser:
