@@ -1706,14 +1706,22 @@ class SavedSessions(unittest.TestCase):
         self.assertEqual([r["title"] for r in sessions.listing()], ["third", "second", "first"])
 
     def test_a_session_id_cannot_escape_the_directory(self):
-        """It is ours, but it still arrives from an HTTP request."""
-        for bad in ("../../etc/passwd", "/etc/passwd", "..", ""):
+        """It is ours, but it still arrives from an HTTP request. Every shape a scanner worries
+        about, and a few it does not: URL encoding, a null byte, Windows separators, and the
+        doubled-dot trick that survives one round of stripping."""
+        for bad in ("../../etc/passwd", "/etc/passwd", "..", "", ".",
+                    "..%2f..%2fetc%2fpasswd", "a/../../b", "....//....//x",
+                    "C:\\Windows\\system32\\x", "\x00etc/passwd", "~/.ssh/id_rsa",
+                    "." * 300, "%2e%2e/%2e%2e/x"):
             with self.subTest(bad=bad):
                 try:
                     p = sessions._path(bad)
                 except ValueError:
                     continue
-                self.assertTrue(os.path.abspath(p).startswith(os.path.abspath(sessions.DIR)))
+                root = os.path.abspath(sessions.DIR)
+                self.assertTrue(os.path.abspath(p).startswith(root + os.sep),
+                                f"{bad!r} produced {p}")
+                self.assertEqual(os.path.dirname(os.path.abspath(p)), root)
 
     def test_export_keeps_the_dissent_and_the_failures(self):
         """A board's output is only worth keeping if the disagreement comes with it."""
@@ -2269,11 +2277,37 @@ class TheOnlyPlaceThatWrites(unittest.TestCase):
 
     def test_the_parser_and_the_writer_share_one_rule(self):
         """They drifted apart once. Same function now, so they cannot again."""
-        for rel in ("../x", "/etc/hosts"):
+        for rel in ("../x", "/etc/hosts", "../../../etc/passwd", "sub/../../out.txt",
+                    "..\\..\\win.txt", "./../x"):
             with self.subTest(rel), self.assertRaises(patch.Rejected):
                 patch.contained(self.proj, rel)
         self.assertEqual(patch.contained(self.proj, "a.py"),
                          os.path.join(self.proj, "a.py"))
+
+    def test_a_tilde_is_a_filename_not_a_home_directory(self):
+        """`~/.ssh/id_rsa` is allowed, and lands in a folder literally called `~` inside the
+        project. That is right: the rule is containment, and `~` is a legal file name. It is
+        only dangerous if something later calls expanduser on the result - nothing does, and
+        this is the test that says so."""
+        full = patch.contained(self.proj, "~/.ssh/id_rsa")
+        self.assertTrue(full.startswith(os.path.abspath(self.proj) + os.sep))
+        self.assertIn("~", full)
+        self.assertNotEqual(full, os.path.expanduser("~/.ssh/id_rsa"))
+
+    def test_a_symlink_pointing_out_of_the_folder_is_refused(self):
+        """`.env -> ~/secrets/.env` is an ordinary thing to have in a project. Writing through
+        one puts the board's text somewhere the owner never named."""
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with open(os.path.join(outside, "secret.txt"), "w", encoding="utf-8") as fh:
+            fh.write("SECRET\n")
+        try:
+            os.symlink(os.path.join(outside, "secret.txt"),
+                       os.path.join(self.proj, "link.txt"))
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"symlinks unavailable: {e}")
+        with self.assertRaises(patch.Rejected):
+            patch.contained(self.proj, "link.txt")
 
 
 class BlindMeansBlindToYourselfToo(unittest.TestCase):
@@ -3124,6 +3158,30 @@ class EverySpendingPathIsFenced(unittest.TestCase):
                             "messages": [{"role": "user", "content": "hi"}]})
         self.assertIn("error", r)
         self.assertEqual(self.seen, {}, "a refused turn still went to the wire")
+
+
+
+class AMaskedKeyIsNotAKey(unittest.TestCase):
+    """The three things a scanner flags as "clear-text logging of sensitive information" are
+    all this function's output, so what it shows has to be worth nothing to a stranger."""
+
+    def test_a_real_key_shows_its_public_prefix_and_nothing_usable(self):
+        key = "sk-or-v1-" + "0123456789abcdef" * 4
+        shown = config.mask(key)
+        self.assertEqual(shown, "sk-or-v1..." + key[-4:])
+        self.assertLess(len(shown.replace("...", "")), 16)
+        self.assertNotIn(key[9:-4], shown)
+
+    def test_a_short_secret_shows_nothing_at_all(self):
+        """Four characters of a long key is a prefix everybody has. Four characters of a short
+        one is a quarter of the secret."""
+        for key in ("hunter2", "abcd", "0123456789abcdef"):
+            with self.subTest(key=key):
+                self.assertEqual(config.mask(key), "****")
+
+    def test_no_key_is_a_different_answer_from_a_hidden_one(self):
+        self.assertEqual(config.mask(None), "none")
+        self.assertEqual(config.mask(""), "none")
 
 
 if __name__ == "__main__":

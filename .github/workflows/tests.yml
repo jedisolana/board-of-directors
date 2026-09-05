@@ -10,6 +10,12 @@ env:
   # prints an em dash. Without this the first unicode character is a UnicodeEncodeError.
   PYTHONUTF8: "1"
 
+# A workflow with no permissions block inherits whatever the repository default is, which on
+# many repositories is write. These jobs check out the code and run tests; reading it is all
+# they need, and saying so means a compromised action in the chain cannot push with our token.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}

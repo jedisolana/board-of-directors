@@ -36,3 +36,30 @@ choosing it:
 - Every one of the above has a test that fails without the fix.
 
 Details, and the bugs that led to each of them, are in `CHANGELOG.md`.
+
+## What is deliberately not restricted
+
+**The folder you point it at.** `board ask --code <folder>` reads whatever folder you name,
+anywhere on the machine. That is the feature, not an oversight: the person running it is the
+person choosing what the board gets to read. What *is* enforced is that it cannot then wander
+out of that folder — symlinks pointing outside are skipped rather than followed, and the one
+endpoint that writes refuses any path that resolves outside the folder you picked.
+
+The protection around all of it is that the console listens on loopback only. If you put this
+behind a proxy, or bind it to anything but `127.0.0.1`, you are handing a stranger the ability
+to name folders on your machine. Don't.
+
+## Static analysis
+
+CodeQL flags this repository for "uncontrolled data used in a path expression" wherever a
+request-supplied name reaches a file operation. Those paths are checked, but the checks are
+whitelists and `commonpath` comparisons that the scanner does not recognise as sanitisers:
+
+- a session id is stripped to letters, digits, `-` and `_`, and capped at 64 characters, so
+  `../../../../etc/passwd` becomes the file `etcpasswd.json` inside the sessions folder;
+- a path in a proposed patch is rejected if it is absolute, contains a `..` segment, fails a
+  `commonpath` check against the folder, is a symlink, or resolves outside the folder.
+
+Both are covered by tests that try to escape and assert that they cannot. It also flags the
+key being printed: what is printed is `mask()`, which shows a key's public prefix and four
+trailing characters, and shows a short one as `****`.

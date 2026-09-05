@@ -233,7 +233,12 @@ def mask(key: str | None) -> str:
     """Enough to recognise it, never enough to use it."""
     if not key:
         return "none"
-    return f"{key[:8]}...{key[-4:]}" if len(key) > 16 else key[:4] + "..."
+    if len(key) <= 16:
+        # A real OpenRouter key is long, and the first eight characters of one are the public
+        # `sk-or-v1` prefix. Four characters of a SHORT secret are a real fraction of it, so a
+        # short one is shown as nothing but the fact that it is there.
+        return "****"
+    return f"{key[:8]}...{key[-4:]}"
 
 
 def board(name: str = "default") -> list[str] | None:

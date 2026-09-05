@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Security review (CodeQL)
+
+Code scanning was switched on and raised twenty alerts. Two were real and both are fixed; the
+other eighteen are guards the scanner cannot see through, and each now has a test that tries to
+get past it.
+
+- **The CI workflow declared no permissions**, so its token inherited the repository default.
+  It now states `contents: read`, which is all a checkout-and-test job needs.
+- **A short secret showed four of its characters.** `mask()` reveals the public `sk-or-v1`
+  prefix and four trailing characters of a real key, which is worth nothing to a stranger — but
+  the same rule applied to a sixteen-character string gives away a quarter of it. Short values
+  are now shown as `****`.
+- **Session ids and patch paths were already contained**, and the tests that say so were thin.
+  They now attack with URL encoding, a null byte, Windows separators, the doubled-dot trick,
+  and a symlink pointing out of the folder. Every one is refused or stripped.
+- **`SECURITY.md` says what is deliberately not restricted**: the folder you point the board
+  at is any folder you like, because you are the one naming it — and the console listens on
+  loopback only, which is what makes that safe.
+
 ## 0.1.0 — 2026-09-05
 
 Released as **Board of Directors**.
