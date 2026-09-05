@@ -128,7 +128,7 @@ class Seam(unittest.TestCase):
             "AKIAIOSFODNN7EXAMPLE",
             "ghp_0123456789012345678901234567890123",
             "-----BEGIN OPENSSH PRIVATE KEY-----",
-            "ssh to 100.64.0.1",
+            "ssh to 100.64.0.1"          # the CGNAT range's own first address, nobody's,
             "server at 192.168.1.10",
             "see ~/.ssh/id_ed25519",
             "config in /Users/someone/app/.env",
