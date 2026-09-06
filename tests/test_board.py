@@ -3245,8 +3245,17 @@ class NothingShippedSaysWhenOrWhoseItWas(unittest.TestCase):
                 out += [(first + i, ln) for i, ln in enumerate(doc.splitlines())]
         return out
 
+    def _label(self, path):
+        """`relpath` does not return a long answer across Windows drives, it raises. The
+        control below writes to a temp file, and on a CI runner the checkout is on D: while
+        the temp directory is on C:."""
+        try:
+            return os.path.relpath(path, self.ROOT)
+        except ValueError:
+            return path
+
     def _hits(self, path, patterns):
-        rel = os.path.relpath(path, self.ROOT)
+        rel = self._label(path)
         return [f"{rel}:{n}: {text.strip()[:90]}"
                 for n, text in self._prose(path)
                 if any(pat.search(text) for pat in patterns)]
@@ -3273,6 +3282,15 @@ class NothingShippedSaysWhenOrWhoseItWas(unittest.TestCase):
         hits = self._hits(f, (self.ISO,))
         self.assertEqual(len(hits), 2, f"expected the docstring and the comment only: {hits}")
         self.assertNotIn("DAY", " ".join(hits))
+
+    def test_a_path_on_another_drive_still_gets_a_label(self):
+        """Not reproducible on a mac, where `relpath` always answers. CI found it: three
+        Windows jobs raised `path is on mount 'C:', start on mount 'D:'` from the control
+        above, because the checkout is on one drive and the temp directory on another."""
+        from unittest import mock
+        outside = os.path.join(os.sep, "elsewhere", "x.py")
+        with mock.patch("os.path.relpath", side_effect=ValueError("different drives")):
+            self.assertEqual(self._label(outside), outside)
 
     def test_the_licence_names_the_handle_and_nobody_else(self):
         """It read `freeboard contributors` - a name from before this project was this
