@@ -3330,6 +3330,20 @@ class TheReadmeCountsWhatIsActuallyHere(unittest.TestCase):
         self.assertEqual(int(claimed.group(1)), actual,
                          f"the README says {claimed.group(1)} tests; there are {actual}")
 
+    def test_the_readme_states_the_real_model_count(self):
+        """"All 431 models become seatable" is a fact about the bundled catalogue, and the
+        catalogue is refreshed - so the sentence is true until somebody runs `board refresh`
+        and then it is quietly not. The test count beside it has been checked from the start;
+        this number had only a comment mentioning it."""
+        with open(os.path.join(self.ROOT, "boardofdirectors", "data", "free-models.json"),
+                  encoding="utf-8") as f:
+            actual = len(json.load(f)["models"])
+        with open(os.path.join(self.ROOT, "README.md"), encoding="utf-8") as f:
+            claimed = re.search(r"all (\d+) models", f.read())
+        self.assertIsNotNone(claimed, "the README no longer states a model count")
+        self.assertEqual(int(claimed.group(1)), actual,
+                         f"the README says {claimed.group(1)} models; the snapshot has {actual}")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
