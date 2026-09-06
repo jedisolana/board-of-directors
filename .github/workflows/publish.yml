@@ -64,4 +64,8 @@ jobs:
           EOF
 
       - name: upload to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        # Pinned to a commit, not to `release/v1`. That ref is a BRANCH: whatever it points at
+        # is what runs, and this is the one job in the repository holding `id-token: write` -
+        # the permission that mints a PyPI credential. A moving ref here is a third party with
+        # standing permission to publish under this name. (Currently v1.14.2.)
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33
