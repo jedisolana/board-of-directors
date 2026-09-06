@@ -1,0 +1,67 @@
+name: publish
+
+# Tag a version and it goes to PyPI. Nothing else does - no manual build on somebody's laptop,
+# no token pasted into a terminal, no "which machine did we release from".
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # The same tests.yml the branch runs, called rather than copied. A release that skipped them
+  # would be a release nobody checked, and a gate written as a second copy of the job is a gate
+  # that drifts out of step with the first.
+  test:
+    uses: ./.github/workflows/tests.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # Trusted Publishing: GitHub mints a short-lived OIDC token that PyPI verifies against
+      # this repository and this workflow file. There is no API token to store, leak, rotate,
+      # or find in a repository secret two years from now.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: the tag has to match the version in pyproject.toml
+        # Otherwise `git tag v0.1.1` on a tree that still says 0.1.0 uploads 0.1.0 again, PyPI
+        # refuses it as a duplicate, and the failure arrives at the last possible moment.
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          have=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "tag $tag, pyproject $have"
+          test "$tag" = "$have"
+
+      - name: build from a clean tree
+        run: |
+          rm -rf build dist ./*.egg-info
+          python -m pip install --upgrade build twine
+          python -m build
+
+      - name: twine check
+        run: python -m twine check dist/*
+
+      - name: the package data has to be in the artifacts
+        # web/index.html and data/free-models.json are what make the console work. They are
+        # declared in pyproject.toml, and a declaration is not a file: the first release of
+        # this project shipped a wheel without them and served a 404.
+        run: |
+          python - <<'EOF'
+          import glob, zipfile, sys
+          whl = glob.glob("dist/*.whl")[0]
+          names = zipfile.ZipFile(whl).namelist()
+          missing = [w for w in ("boardofdirectors/web/index.html",
+                                 "boardofdirectors/data/free-models.json") if w not in names]
+          print("\n".join(sorted(names)))
+          sys.exit(f"missing from the wheel: {missing}" if missing else 0)
+          EOF
+
+      - name: upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

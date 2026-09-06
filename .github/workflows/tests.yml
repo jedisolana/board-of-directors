@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # So a release can REUSE this workflow rather than copy it. publish.yml calls it and will
+  # not upload unless it passes - a gate made of a duplicated job is a gate that drifts.
+  workflow_call:
 
 env:
   # Windows runners decode stdout as cp1252 unless told otherwise, and the board's report
