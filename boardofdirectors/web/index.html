@@ -427,7 +427,13 @@ let sortKey = "coding", kind = "decide", nudged = false, _shown = 0;
 // ticked is the more explicit of the two.
 let seatCount = 6;
 
-const esc = t => (t||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+// Quotes as well as angle brackets. This is used in thirteen places INSIDE a quoted
+// attribute - title="${esc(...)}", data-rel="${esc(...)}" - and a value carrying a `"`
+// closed the attribute early and turned whatever followed into a real one: a file named
+// `x" onmouseover="alert(1)` in a scanned folder was enough. Escaping only &<> is right
+// for text and not enough for an attribute, and the same function serves both.
+const esc = t => (t||"").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 const k = n => !n ? "-" : n < 1e6 ? Math.round(n/1000)+"k" : (n/1e6).toFixed(n%1e6?1:0)+"M";
 
 // OpenRouter names come as "Vendor: Model Name (free)". Everything here is free, so the

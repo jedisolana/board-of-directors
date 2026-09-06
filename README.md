@@ -444,7 +444,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-**253 tests, no network, no dependencies.** CI runs them on Linux, macOS and Windows. Most are failure paths, because a board that works
+**256 tests, no network, no dependencies.** CI runs them on Linux, macOS and Windows. Most are failure paths, because a board that works
 when every model answers is the easy half. They cover a throttled member, the seam catching a
 key, a pool with no independent members left, two consoles writing the counter at once, a paid
 model trying to reach a free board — and, after being caught by them the hard way, whether the

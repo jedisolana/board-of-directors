@@ -1829,6 +1829,55 @@ class ThePage(unittest.TestCase):
         for ch in ("&", "<", ">"):
             self.assertIn(ch, body, f"esc does not handle {ch}")
 
+    def test_esc_also_neutralises_the_characters_that_close_an_attribute(self):
+        """`&<>` is the right set for TEXT and not enough for an attribute, and the same
+        function serves both. It was used in thirteen places inside a quoted attribute -
+        `title="${esc(...)}"`, `data-rel="${esc(...)}"` - while escaping neither quote, so a
+        value carrying a `"` closed the attribute early and everything after it became real
+        markup. A file named `x" onmouseover="alert(1)` in a scanned folder was enough, and its
+        name reaches the page through the apply button."""
+        h = self.page()
+        body = re.search(r"const esc = (.+?);\n", h, re.S).group(1)
+        for ch, entity in (('"', "quot"), ("'", "#39")):
+            self.assertIn(entity, body, f"esc does not turn {ch} into an entity")
+
+    def test_every_attribute_that_interpolates_is_escaped(self):
+        """Anything dropped inside a quoted attribute goes through esc, or is on the list
+        below with a reason. The list is the point: a value that cannot carry a quote is safe
+        raw, and saying WHY keeps the next addition from being waved through.
+        """
+        # expression -> why it cannot carry a `"`
+        ALLOWED = {
+            'sc(m)==null?"none":""': "a ternary between two literals",
+            'kind': "callers pass a literal class name: warn, bad, ok",
+            '(a.vote||"UNCLEAR").toLowerCase()': "read_vote returns one of four constants",
+            '(ev.vote||"UNCLEAR").toLowerCase()': "read_vote returns one of four constants",
+            't.split||t.decided===0?"tied":(t.carried?"yes":"no")': "a ternary between literals",
+            'm.free ? "free" : ""': "a ternary between two literals",
+            'i': "a loop index",
+            's.id===sessionId?"on":""': "a ternary between two literals",
+        }
+        h = self.page()
+        raw = []
+        for m in re.finditer(r'=\"([^\"]*?\$\{[^}]+\}[^\"]*?)\"', h):
+            for expr in re.findall(r"\$\{([^}]+)\}", m.group(1)):
+                e = expr.strip()
+                if "esc(" in e or e in ALLOWED:
+                    continue
+                raw.append(e)
+        self.assertEqual(sorted(set(raw)), [],
+                         "unescaped interpolation inside an attribute - escape it, or add it "
+                         "to ALLOWED with the reason it cannot carry a quote")
+
+    def test_the_vote_that_reaches_a_class_attribute_is_a_constant(self):
+        """The one entry above that is model-derived rather than a literal. It is safe because
+        the SERVER constrains it, so that is where the guard has to be - if read_vote ever
+        returned the model's own words, the console would be putting them in an attribute."""
+        for text in ('VOTE: FOR', 'VOTE: AGAINST', 'VOTE: DEPENDS', 'nothing declared',
+                     'VOTE: FOR" onmouseover="alert(1)', 'VOTE: <img src=x onerror=alert(1)>'):
+            with self.subTest(text=text):
+                self.assertIn(board.read_vote(text), board.VOTES)
+
     def test_tags_are_balanced(self):
         """A half-applied edit left a stray closing tag inside the dialog."""
         h = self.page()
