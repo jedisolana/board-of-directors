@@ -1,6 +1,7 @@
 # Board of Directors
 
 [![tests](https://github.com/jedisolana/board-of-directors/actions/workflows/tests.yml/badge.svg)](https://github.com/jedisolana/board-of-directors/actions/workflows/tests.yml)
+[![pypi](https://img.shields.io/pypi/v/jedi-board-of-directors?label=pypi)](https://pypi.org/project/jedi-board-of-directors/)
 [![release](https://img.shields.io/github/v/release/jedisolana/board-of-directors?label=release)](https://github.com/jedisolana/board-of-directors/releases)
 [![python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](pyproject.toml)
@@ -16,6 +17,15 @@ It runs on OpenRouter's free tier, so it costs nothing to try. Point it at paid 
 question is worth money.
 
 ![The console](docs/fig-console.png)
+
+```bash
+pipx install jedi-board-of-directors && board
+```
+
+The prefix is not decoration — `boardofdirectors` on PyPI belongs to somebody else, and PyPI
+reads hyphens as if they weren't there. Same project, same `board` command.
+
+Or straight from `main`, for changes that are not in a release yet:
 
 ```bash
 pipx install git+https://github.com/jedisolana/board-of-directors && board
@@ -232,8 +242,8 @@ the dissent and the missing members in it.
 
 ## What the free tier gives you
 
-From [OpenRouter's rate-limit docs](https://openrouter.ai/docs/api-reference/limits), read
-2026-09-04:
+From [OpenRouter's rate-limit docs](https://openrouter.ai/docs/api-reference/limits) —
+upstream's numbers, so check them there if a limit surprises you:
 
 | | requests/day |
 |---|---|
@@ -402,7 +412,7 @@ code. A tab that is empty says so rather than looking broken.
 
 ## Removing it
 
-    pipx uninstall board-of-directors
+    pipx uninstall jedi-board-of-directors
     rm -rf ~/.board-of-directors
 
 The second line is the one that matters: it deletes your saved key, the request ledger and
@@ -434,7 +444,7 @@ python3 -m unittest discover -s tests
 ruff check .
 ```
 
-**159 tests, no network, no dependencies.** CI runs them on Linux, macOS and Windows. Most are failure paths, because a board that works
+**251 tests, no network, no dependencies.** CI runs them on Linux, macOS and Windows. Most are failure paths, because a board that works
 when every model answers is the easy half. They cover a throttled member, the seam catching a
 key, a pool with no independent members left, two consoles writing the counter at once, a paid
 model trying to reach a free board — and, after being caught by them the hard way, whether the
@@ -443,3 +453,5 @@ page references elements that exist and whether a closed dialog is actually hidd
 ## Licence
 
 MIT.
+
+Built by [@jedisolana](https://x.com/jedisolana).

@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
+
+### On PyPI, under a different name
+
+`pip install board-of-directors` was never going to work: PyPI compares a proposed name against
+existing ones with the separators removed, and `boardofdirectors` is already taken by an
+unrelated project. The install name is now **`jedi-board-of-directors`**. The commands are
+unchanged - `board` and `board-of-directors` - and so is the import, `boardofdirectors`.
+
+Releases are cut by tagging. The workflow runs the test suite, refuses a tag that disagrees with
+the version here, refuses a wheel that is missing the console or the model list, and uploads
+with no API token in existence: PyPI verifies the repository and workflow directly.
+
+### The licence named a project that does not exist
+
+It read `freeboard contributors`, a name left over from before this one. It now reads
+`jedisolana`, and there is a test that walks every shipped document and source file and fails on
+a stray date or year - the check that would have caught it.
 
 ### Security review (CodeQL)
 
@@ -21,7 +38,7 @@ get past it.
   at is any folder you like, because you are the one naming it — and the console listens on
   loopback only, which is what makes that safe.
 
-## 0.1.0 — 2026-09-05
+## 0.1.0
 
 Released as **Board of Directors**.
 

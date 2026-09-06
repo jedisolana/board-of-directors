@@ -3,12 +3,13 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "board-of-directors"
-version = "0.1.0"
+name = "jedi-board-of-directors"
+version = "0.1.1"
 description = "A board of directors made of free models: independent votes, blind ranking, a chair that didn't vote."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [{ name = "jedisolana" }]
 keywords = ["llm", "openrouter", "ensemble", "multi-agent", "jury", "mixture-of-agents"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -23,6 +24,7 @@ Homepage = "https://github.com/jedisolana/board-of-directors"
 Repository = "https://github.com/jedisolana/board-of-directors"
 Issues = "https://github.com/jedisolana/board-of-directors/issues"
 Changelog = "https://github.com/jedisolana/board-of-directors/blob/main/CHANGELOG.md"
+Author = "https://x.com/jedisolana"
 
 [project.scripts]
 board = "boardofdirectors.cli:main"

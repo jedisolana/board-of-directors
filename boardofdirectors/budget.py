@@ -1,6 +1,6 @@
 """What a free board actually costs you in requests, and how many you get.
 
-THE NUMBERS (openrouter.ai/docs/api-reference/limits, read 2026-09-04):
+THE NUMBERS (openrouter.ai/docs/api-reference/limits - upstream's, and upstream can move them):
 
     20 requests per minute       across free models, uniform
     50 requests per day          if you have purchased less than $10 of credits, all time

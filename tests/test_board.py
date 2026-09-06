@@ -589,7 +589,7 @@ class TheRename(unittest.TestCase):
         with open(os.path.join(old, "config.json"), "w") as f:
             f.write('{"api_key": "sk-or-v1-carried", "credits_purchased_usd": 10}')
         with open(os.path.join(old, "usage.json"), "w") as f:
-            f.write('{"days": {"2026-09-04": {"calls": 7, "failed": 0, "models": {}}}}')
+            f.write('{"days": {"2021-06-07": {"calls": 7, "failed": 0, "models": {}}}}')
         try:
             os.environ["BOARD_HOME"] = new
             importlib.reload(config)
@@ -1109,9 +1109,9 @@ class TheTrueCount(unittest.TestCase):
         self.assertIn("no management key", why)
 
     def test_the_day_window_is_a_full_utc_day(self):
-        start, end = truecount._utc_day_bounds(datetime.date(2026, 9, 4))
-        self.assertEqual(start, "2026-09-04T00:00:00Z")
-        self.assertEqual(end, "2026-09-05T00:00:00Z")
+        start, end = truecount._utc_day_bounds(datetime.date(2021, 6, 7))
+        self.assertEqual(start, "2021-06-07T00:00:00Z")
+        self.assertEqual(end, "2021-06-08T00:00:00Z")
 
     def test_the_management_key_is_only_ever_sent_to_analytics(self):
         """It can create and DELETE API keys. A credential with that power must never be one
@@ -1278,11 +1278,11 @@ class ResettingTheCount(unittest.TestCase):
         self.assertEqual(usage.status(0).calls, 1)
 
     def test_other_days_are_untouched(self):
-        usage.record("a/one", ok=True, day="2026-09-01")
+        usage.record("a/one", ok=True, day="2021-06-01")
         usage.record("a/one", ok=True)
         usage.reset_today()
         self.assertEqual(usage.status(0).calls, 0)
-        self.assertEqual(len([r for r in usage._load()["days"] if r == "2026-09-01"]), 1)
+        self.assertEqual(len([r for r in usage._load()["days"] if r == "2021-06-01"]), 1)
 
 
 class WritingFilesSafely(unittest.TestCase):
@@ -3182,6 +3182,135 @@ class AMaskedKeyIsNotAKey(unittest.TestCase):
     def test_no_key_is_a_different_answer_from_a_hidden_one(self):
         self.assertEqual(config.mask(None), "none")
         self.assertEqual(config.mask(""), "none")
+
+
+class NothingShippedSaysWhenOrWhoseItWas(unittest.TestCase):
+    """The licence copyrighted a project that does not exist, and three documents carried the
+    day somebody read a web page.
+
+    Prose drifts, and a rule kept in somebody's head drifts with it, so the rule is a test.
+
+    What counts as a violation is prose, not data. A comment saying when a rate-limit page was
+    read goes stale and dates the work; a fixture using a calendar day to test a day boundary
+    is neither. So Python files are read through `tokenize` and `ast` - comments and docstrings
+    only, never a string literal - and everything else is read whole.
+
+    The patterns are assembled from fragments on purpose: a guard written with an example date
+    in it is a guard that fails on itself.
+    """
+
+    PKG = os.path.dirname(os.path.abspath(catalogue.__file__))
+    ROOT = os.path.dirname(PKG)
+
+    _Y = r"(?:19|20)\d{2}"
+    ISO = re.compile(_Y + r"-\d{2}-\d{2}")
+    YEAR = re.compile(r"\b" + _Y + r"\b")
+    MONTH = re.compile(r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+"
+                       r"\d{1,2},?\s+" + _Y)
+
+    def _documents(self):
+        for name in sorted(os.listdir(self.ROOT)):
+            if name.endswith(".md") or name == "LICENSE":
+                yield os.path.join(self.ROOT, name)
+
+    def _sources(self):
+        for base in (self.PKG, os.path.join(self.ROOT, "tests"),
+                     os.path.join(self.ROOT, ".github", "workflows")):
+            for dirpath, dirnames, filenames in os.walk(base):
+                dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+                for name in sorted(filenames):
+                    if name.endswith((".py", ".yml", ".yaml")):
+                        yield os.path.join(dirpath, name)
+
+    def _prose(self, path):
+        """(line, text) for the parts of a file a person reads as English."""
+        import ast as _ast
+        import tokenize as _tok
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        if not path.endswith(".py"):
+            return list(enumerate(src.splitlines(), 1))
+
+        out = []
+        for tok in _tok.generate_tokens(io.StringIO(src).readline):
+            if tok.type == _tok.COMMENT:
+                out.append((tok.start[0], tok.string))
+        for node in _ast.walk(_ast.parse(src)):
+            if not isinstance(node, (_ast.Module, _ast.ClassDef,
+                                     _ast.FunctionDef, _ast.AsyncFunctionDef)):
+                continue
+            doc = _ast.get_docstring(node, clean=False)
+            if doc:
+                first = getattr(node, "lineno", 1)
+                out += [(first + i, ln) for i, ln in enumerate(doc.splitlines())]
+        return out
+
+    def _hits(self, path, patterns):
+        rel = os.path.relpath(path, self.ROOT)
+        return [f"{rel}:{n}: {text.strip()[:90]}"
+                for n, text in self._prose(path)
+                if any(pat.search(text) for pat in patterns)]
+
+    def test_no_document_carries_a_date_or_a_year(self):
+        """A changelog heading is a version. A licence is a licence. Neither is a diary."""
+        found = [h for p in self._documents() for h in self._hits(p, (self.YEAR, self.MONTH))]
+        self.assertEqual(found, [], "a document dates the work:\n" + "\n".join(found))
+
+    def test_no_comment_or_docstring_carries_a_date(self):
+        """The one that got through: a module docstring recording the day its numbers were
+        read off a web page. Bare four-digit numbers are left alone - a token cap is not a
+        year - so this looks only for something written in the shape of a date."""
+        found = [h for p in self._sources() for h in self._hits(p, (self.ISO, self.MONTH))]
+        self.assertEqual(found, [], "a comment or docstring dates the work:\n" + "\n".join(found))
+
+    def test_the_guard_can_tell_prose_from_data(self):
+        """Without this, the test above passes by reading nothing at all."""
+        f = os.path.join(tempfile.mkdtemp(), "sample.py")
+        with open(f, "w") as fh:
+            fh.write('"""Read ' + "2019-04-01" + '."""\n'
+                     "DAY = " + repr("2019-04-02") + "\n"
+                     "# and " + "2019-04-03" + "\n")
+        hits = self._hits(f, (self.ISO,))
+        self.assertEqual(len(hits), 2, f"expected the docstring and the comment only: {hits}")
+        self.assertNotIn("DAY", " ".join(hits))
+
+    def test_the_licence_names_the_handle_and_nobody_else(self):
+        """It read `freeboard contributors` - a name from before this project was this
+        project - through every earlier scrub, because nothing ever read the licence."""
+        with open(os.path.join(self.ROOT, "LICENSE"), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip().startswith("Copyright")]
+        self.assertEqual(lines, ["Copyright (c) jedisolana"])
+
+
+class TheReadmeCountsWhatIsActuallyHere(unittest.TestCase):
+    """The README advertised 159 tests. There were 249 of them.
+
+    A number written into prose is a claim, and this one had been wrong for ninety tests
+    because nothing was ever going to notice. Counting is done from the classes already
+    imported here rather than by re-running discovery, which would import this module a second
+    time and re-apply its module-level network guard.
+    """
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(catalogue.__file__)))
+
+    def test_this_is_still_the_only_test_file(self):
+        """Counting one module is only honest while there is one module."""
+        here = os.path.join(self.ROOT, "tests")
+        found = sorted(f for f in os.listdir(here)
+                       if f.startswith("test") and f.endswith(".py"))
+        self.assertEqual(found, ["test_board.py"],
+                         "another test file exists, so the count below no longer sees everything")
+
+    def test_the_readme_states_the_real_number(self):
+        loader = unittest.TestLoader()
+        actual = sum(len(loader.getTestCaseNames(obj))
+                     for obj in vars(sys.modules[__name__]).values()
+                     if isinstance(obj, type) and issubclass(obj, unittest.TestCase))
+        with open(os.path.join(self.ROOT, "README.md"), encoding="utf-8") as f:
+            claimed = re.search(r"\*\*(\d+) tests,", f.read())
+        self.assertIsNotNone(claimed, "the README no longer states a test count")
+        self.assertEqual(int(claimed.group(1)), actual,
+                         f"the README says {claimed.group(1)} tests; there are {actual}")
 
 
 if __name__ == "__main__":
