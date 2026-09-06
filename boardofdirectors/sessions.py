@@ -17,6 +17,7 @@ questions and your code, so they are treated like the key: never sent anywhere, 
 from __future__ import annotations
 
 import os
+import re
 import time
 import uuid
 
@@ -32,12 +33,23 @@ def _dir() -> str:
     return DIR
 
 
+_ID_OK = re.compile(r"\A[A-Za-z0-9_-]{1,64}\Z")
+
+
 def _path(sid: str) -> str:
-    # a session id is ours, but it still reaches this from an HTTP request
-    safe = "".join(c for c in sid if c.isalnum() or c in "-_")[:64]
-    if not safe:
+    """The file for a session id, or `ValueError`. The id is ours - `new_id` makes twelve hex
+    characters - but it still arrives from an HTTP request.
+
+    REFUSED rather than cleaned up. Stripping the characters it does not like kept traversal
+    out, but it is lossy, and lossy means two different ids become one file: `a/../../b` and
+    `a\x00b` both wrote `ab.json`, so loading one returned the other's session. That is the
+    same mistake `patch.parse` already has a comment about - rewriting a hostile path into a
+    plausible one - and it was made again one directory away. Every id this program generates
+    passes; nothing else does.
+    """
+    if not _ID_OK.match(sid or ""):
         raise ValueError("bad session id")
-    return os.path.join(_dir(), safe + ".json")
+    return os.path.join(_dir(), sid + ".json")
 
 
 def new_id() -> str:

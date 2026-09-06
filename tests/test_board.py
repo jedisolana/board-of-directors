@@ -1705,6 +1705,26 @@ class SavedSessions(unittest.TestCase):
             sessions.save(sessions.new_id(), [{"role": "user", "content": q}])
         self.assertEqual([r["title"] for r in sessions.listing()], ["third", "second", "first"])
 
+    def test_two_session_ids_cannot_become_one_file(self):
+        """The id was CLEANED rather than refused, and cleaning is lossy: `a/../../b` and
+        `a\\x00b` both wrote `ab.json`, so loading one handed back the other's session.
+
+        Traversal never escaped - every write landed in the sessions directory - so the guard
+        that was there did the job it was written for and quietly did a different damage.
+        `patch.parse` has a comment about exactly this, about rewriting a hostile path into a
+        plausible one instead of refusing it; the same mistake was one directory away.
+        """
+        seen = {}
+        for sid in ("a/../../b", "a\x00b", "....//x", "../../etc/passwd", "/etc/passwd"):
+            with self.subTest(sid=sid), self.assertRaises(ValueError):
+                sessions.save(sid, [{"role": "user", "content": "x"}])
+        # and the ids this program actually makes are all still fine, and all distinct
+        for _ in range(50):
+            sid = sessions.new_id()
+            self.assertNotIn(sid, seen, "new_id collided")
+            seen[sid] = sessions.save(sid, [{"role": "user", "content": "x"}])
+        self.assertEqual(len(set(seen.values())), len(seen), "two ids share one file")
+
     def test_a_session_id_cannot_escape_the_directory(self):
         """It is ours, but it still arrives from an HTTP request. Every shape a scanner worries
         about, and a few it does not: URL encoding, a null byte, Windows separators, and the
