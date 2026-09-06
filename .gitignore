@@ -8,3 +8,7 @@ dist/
 .env
 .DS_Store
 .pytest_cache/
+
+# codegraph, when it is run in here
+codegraph.json
+codegraph.cache.json
