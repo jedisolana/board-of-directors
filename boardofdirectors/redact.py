@@ -24,7 +24,16 @@ RULES: list[tuple[str, re.Pattern, str]] = [
     ("openai key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}"), "an OpenAI-style API key"),
     ("anthropic key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}"), "an Anthropic API key"),
     ("aws key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "an AWS access key id"),
-    ("github token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}"), "a GitHub token"),
+    # Both shapes. The classic one is two letters and an underscore; the fine-grained one
+    # GitHub now issues by default is a longer prefix, and matched none of the rules here -
+    # not even assigned to a variable, because the name it is usually given ends in TOKEN and
+    # the assignment rule below wants AUTH_TOKEN or ACCESS_TOKEN. Widening that name list
+    # would bring back the false positive it already carries a comment about, so the token is
+    # caught by its own shape instead, which needs no variable at all.
+    ("github token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,})"),
+     "a GitHub token"),
+    # An underscore rather than a hyphen, so the OpenAI rule above does not see it.
+    ("stripe key", re.compile(r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}"), "a Stripe API key"),
     ("slack token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}"), "a Slack token"),
     ("google key", re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"), "a Google API key"),
     ("private key block", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "a private key"),

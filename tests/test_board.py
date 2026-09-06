@@ -168,6 +168,37 @@ class Budget(unittest.TestCase):
 
 
 class Seam(unittest.TestCase):
+    def test_the_shapes_that_were_getting_through(self):
+        """Found by feeding the seam every credential format in common use rather than the
+        ones it was written for.
+
+        GitHub's FINE-GRAINED token - the kind it issues by default now - matched nothing, not
+        even assigned to a variable, because the name it is usually given ends in TOKEN and the
+        assignment rule wants AUTH_TOKEN or ACCESS_TOKEN. Widening that name list would bring
+        back the `budget_tokens = ...` false positive it already carries a comment about, so
+        both of these are caught by their own shape, which needs no variable at all.
+
+        Stripe uses an underscore where OpenAI uses a hyphen, so the OpenAI rule walked past it.
+        """
+        for label, text in [
+            ("github fine-grained", "github_pat_11ABCDEFG0" + "a" * 30),
+            ("github fine, in env", "GITHUB_TOKEN=github_pat_11ABCDEFG0" + "a" * 30),
+            ("stripe live", "sk_live_" + "A1b2C3d4E5f6G7h8I9j0"),
+            ("stripe test", "sk_test_" + "A1b2C3d4E5f6G7h8I9j0"),
+            ("stripe restricted", "rk_live_" + "A1b2C3d4E5f6G7h8I9j0"),
+        ]:
+            with self.subTest(label=label):
+                self.assertTrue(redact.scan(text), f"missed: {label}")
+
+    def test_the_new_rules_do_not_cry_wolf(self):
+        """A seam that fires on ordinary code is one people learn to click through, which is
+        worse than not having one. These are the shapes the new prefixes sit closest to."""
+        for text in ("max_tokens = 1024", "budget_tokens = codebase.audit_message(x)",
+                     "sk_lookup = {}", "rk_live = False", "github_pat_notes = []",
+                     "CHARS_PER_TOKEN = 4", "stripe.api_key = key"):
+            with self.subTest(text=text):
+                self.assertFalse(redact.scan(text), f"false positive on: {text}")
+
     def test_catches_keys_addresses_and_paths(self):
         for text in [
             "key is sk-or-v1-0123456789abcdef0123456789",
