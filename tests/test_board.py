@@ -3275,6 +3275,78 @@ class EverySpendingPathIsFenced(unittest.TestCase):
         self.assertEqual(self.seen, {}, "a refused turn still went to the wire")
 
 
+    # --- the OpenAI-compatible door. Both money bugs found in this program were on a path
+    # --- that had a gate somewhere else, and this is the one anything on the machine can post
+    # --- to without opening the console at all.
+
+    def _v1(self, body):
+        """Straight at the handler, the way another tool would come in."""
+        import io as _io
+
+        class Fake(server.Handler):
+            def __init__(self, payload):
+                self.path = "/v1/chat/completions"
+                self.headers = {"Content-Type": "application/json", "Host": "127.0.0.1"}
+                self.rfile = _io.BytesIO(json.dumps(payload).encode())
+                self.wfile = _io.BytesIO()
+                self.status = None
+                self.sent = None
+
+            def send_response(self, code, *a):
+                self.status = code
+
+            def send_header(self, *a):
+                pass
+
+            def end_headers(self):
+                pass
+
+            def _json(self, body, status=200):
+                self.status = status
+                self.sent = body
+                return None
+
+            def log_message(self, *a):
+                pass
+
+        h = Fake(body)
+        h.headers = {"Content-Type": "application/json", "Host": "127.0.0.1",
+                     "Content-Length": str(len(json.dumps(body)))}
+        server.Handler.do_POST(h)
+        return h.status, h.sent
+
+    def test_the_openai_door_refuses_a_paid_model_when_paid_is_off(self):
+        """Name a paid model in the request with paid switched off. This exact branch walked
+        past the gate once already - a gate that covers one door is not a gate."""
+        status, body = self._v1({"model": self.PAID["id"], "offline": True,
+                                 "messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(status, 403, body)
+        self.assertEqual(self.seen, {}, "a refused request still reached the wire")
+
+    def test_the_openai_door_fences_a_paid_model_when_paid_is_on(self):
+        status, body = self._v1({"model": self.PAID["id"], "allow_paid": True, "offline": True,
+                                 "messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(status, 200, body)
+        caps = [c for c in self.seen.get(self.PAID["id"], []) if c is not None]
+        self.assertTrue(caps and all(cost.OUTPUT_FLOOR <= c < 32768 for c in caps),
+                        f"the paid model was called with no ceiling: {self.seen}")
+
+    def test_the_openai_door_refuses_when_the_cap_cannot_fit(self):
+        config.set_spend_cap(0.001)
+        status, body = self._v1({"model": self.PAID["id"], "allow_paid": True, "offline": True,
+                                 "messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(status, 402, body)
+        self.assertEqual(self.seen, {}, "a refused request still reached the wire")
+
+    def test_a_zero_cap_shuts_the_openai_door_too(self):
+        """A zero cap is a statement about money, and it must not be overridable by a flag in
+        a request body from something that is not the console."""
+        config.set_spend_cap(0)
+        status, body = self._v1({"model": self.PAID["id"], "allow_paid": True, "offline": True,
+                                 "messages": [{"role": "user", "content": "hi"}]})
+        self.assertIn(status, (402, 403), body)
+        self.assertEqual(self.seen, {}, "a refused request still reached the wire")
+
 
 class AMaskedKeyIsNotAKey(unittest.TestCase):
     """The three things a scanner flags as "clear-text logging of sensitive information" are
