@@ -177,6 +177,10 @@ def apply(change: Change, root: str, expect_digest: str | None = None,
     try:
         with open(target, encoding="utf-8") as fh:
             now = fh.read()
+            # The mode comes off the SAME open handle as the contents. Calling os.stat on the
+            # path afterwards read a different thing than the one just read if anything moved
+            # in between, and it was a second path lookup for a value already in hand.
+            keep = stat.S_IMODE(os.fstat(fh.fileno()).st_mode)
     except OSError as e:
         raise Rejected(f"{change.rel} cannot be read: {e}") from e
     if expect_digest and digest(now) != expect_digest:
@@ -194,13 +198,5 @@ def apply(change: Change, root: str, expect_digest: str | None = None,
     # And it keeps the mode the file already had. It used to write 0o644 whatever was there,
     # which quietly widened a file somebody had deliberately made private and narrowed nothing
     # - a patch tool has no business having an opinion about permissions.
-    #
-    # The fallback is a race guard rather than a path anybody reaches on purpose: apply() reads
-    # the target above and raises if it is missing, so by here the file exists unless something
-    # removed it in between. 0o600 is the safe direction if that ever happens.
-    try:
-        keep = stat.S_IMODE(os.stat(target).st_mode)
-    except OSError:
-        keep = 0o600
     atomic.write(target, change.new, mode=keep)
     return target
