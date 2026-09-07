@@ -28,6 +28,7 @@ import difflib
 import hashlib
 import os
 import re
+import stat
 import time
 from dataclasses import dataclass, field
 
@@ -189,5 +190,17 @@ def apply(change: Change, root: str, expect_digest: str | None = None,
         atomic.write(os.path.join(backup_dir, f"{stamp}.{safe}"), now, mode=0o600)
     # The user's own source file, so the same rule: a unique scratch name and an fsync
     # before the rename. A half-written file here is somebody's code.
-    atomic.write(target, change.new, mode=0o644)
+    #
+    # And it keeps the mode the file already had. It used to write 0o644 whatever was there,
+    # which quietly widened a file somebody had deliberately made private and narrowed nothing
+    # - a patch tool has no business having an opinion about permissions.
+    #
+    # The fallback is a race guard rather than a path anybody reaches on purpose: apply() reads
+    # the target above and raises if it is missing, so by here the file exists unless something
+    # removed it in between. 0o600 is the safe direction if that ever happens.
+    try:
+        keep = stat.S_IMODE(os.stat(target).st_mode)
+    except OSError:
+        keep = 0o600
+    atomic.write(target, change.new, mode=keep)
     return target

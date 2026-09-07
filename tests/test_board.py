@@ -1643,6 +1643,21 @@ class ProposedChanges(unittest.TestCase):
         self.assertEqual(ch, [])
         self.assertIn("unchanged", notes[0])
 
+    def test_applying_keeps_the_permissions_the_file_already_had(self):
+        """It wrote 0o644 over whatever was there, so a file somebody had deliberately made
+        private came back world-readable. A patch tool has no business having an opinion about
+        permissions - CodeQL called it out and it was right."""
+        if os.name != "posix":
+            self.skipTest("permission bits are a POSIX idea")
+        import stat as _stat
+        target = os.path.join(self.root, "calc.py")
+        os.chmod(target, 0o600)
+        ch, _ = patch.parse("----- calc.py -----\ndef add(a, b):\n    return a + b\n",
+                            self.root, self.allowed)
+        patch.apply(ch[0], self.root, expect_digest=patch.digest(ch[0].old))
+        self.assertEqual(_stat.S_IMODE(os.stat(target).st_mode), 0o600,
+                         "applying a patch widened the file's permissions")
+
     def test_applying_writes_and_keeps_the_old_contents(self):
         ch, _ = patch.parse("----- calc.py -----\ndef add(a, b):\n    return a + b\n",
                             self.root, self.allowed)
