@@ -32,12 +32,16 @@ def _home() -> str:
     leaves behind, and what a script hands over when its own variable was never set, and the
     only safe reading of it is "not set".
 
-    There is no guard here against a null byte in the path: Python refuses to put one into the
-    environment at all, so the branch would be unreachable, and unreachable code is decoration
-    that later reads as protection.
+    The null-byte check is here because it is NOT unreachable, though it looked that way. On
+    macOS and Linux, Python refuses to put a null byte into the environment at all - so the
+    guard was written, then deleted as decoration on that evidence. CI on Windows and Python
+    3.10 accepted it happily, and the value would have raised from deep inside the library at
+    the moment of use, from a line with nothing to do with the cause.
+
+    Unreachable on the machine in front of me is not unreachable.
     """
     raw = (os.environ.get("BOARD_HOME") or "").strip()
-    if not raw:
+    if not raw or "\0" in raw:
         return DEFAULT_HOME
     return os.path.abspath(os.path.expanduser(raw))
 

@@ -3588,12 +3588,20 @@ class WhereYourKeyGetsWritten(unittest.TestCase):
                 self.home_for(value)
                 self.assertTrue(os.path.isabs(config.CONFIG), config.CONFIG)
 
-    def test_a_null_byte_cannot_get_this_far(self):
-        """Written as a guard first, then deleted from the code. Python refuses to put a null
-        byte into the environment at all, so the branch was unreachable - and unreachable code
-        is decoration that later reads as protection."""
-        with self.assertRaises(ValueError):
-            os.environ["BOARD_HOME"] = "/tmp/board\x00evil"
+    def test_a_null_byte_is_refused_rather_than_carried(self):
+        """A path with a null byte raises from deep inside the library at the moment of use,
+        from a line that has nothing to do with the cause.
+
+        This guard was written, then deleted as unreachable - because macOS and Linux refuse to
+        put a null byte into the environment at all, and that was the whole of the evidence.
+        Windows on Python 3.10 accepted it happily and CI said so. Unreachable on the machine
+        in front of me is not unreachable.
+
+        Tested through the function rather than the environment, so it runs everywhere instead
+        of only on the platform that permits the input."""
+        from unittest import mock
+        with mock.patch.object(os.environ, "get", lambda k, d=None: "/tmp/board\x00evil"):
+            self.assertEqual(config._home(), config.DEFAULT_HOME)
 
     # ------------------------------------------------------------------------- the controls
     def test_an_absolute_path_is_used_exactly_as_given(self):
@@ -3605,8 +3613,11 @@ class WhereYourKeyGetsWritten(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
     def test_a_tilde_still_expands(self):
+        """Compared after normalising: on Windows the value comes back with backslashes, which
+        is `abspath` doing its job. The first version of this compared a normalised path to an
+        unnormalised one and failed on three Windows runners for a difference of one slash."""
         self.assertEqual(self.home_for("~/board-fixture-dir"),
-                         os.path.expanduser("~/board-fixture-dir"))
+                         os.path.abspath(os.path.expanduser("~/board-fixture-dir")))
 
     def test_unset_still_means_the_default(self):
         self.assertEqual(self.home_for(None), config.DEFAULT_HOME)
