@@ -3534,3 +3534,79 @@ class TheReadmeCountsWhatIsActuallyHere(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class WhereYourKeyGetsWritten(unittest.TestCase):
+    """BOARD_HOME names the folder this program keeps your API key in. It was used exactly as
+    given, and three ordinary values sent it somewhere nobody intended:
+
+        BOARD_HOME=""            -> the config file becomes `config.json`, in whatever
+                                    directory you happened to run the command from. Run `board
+                                    setup` inside a git repository and your key is written into
+                                    that repository.
+        BOARD_HOME="relative"    -> the same, one level down.
+        BOARD_HOME="   "         -> a folder actually named with two spaces.
+
+    An empty environment variable is not a request for the current directory. It is what you
+    get from `export BOARD_HOME=` or from a script whose own variable was unset, and it should
+    read as "not set"."""
+
+    def setUp(self):
+        self._old = os.environ.get("BOARD_HOME")
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = self._old
+        importlib.reload(config)
+
+    def home_for(self, value):
+        if value is None:
+            os.environ.pop("BOARD_HOME", None)
+        else:
+            os.environ["BOARD_HOME"] = value
+        importlib.reload(config)
+        return config.HOME
+
+    def test_an_empty_value_is_not_the_current_directory(self):
+        self.assertEqual(self.home_for(""), config.DEFAULT_HOME)
+
+    def test_whitespace_is_not_a_folder_name(self):
+        self.assertEqual(self.home_for("   "), config.DEFAULT_HOME)
+
+    def test_a_relative_value_is_made_absolute(self):
+        home = self.home_for("board-fixture-dir")
+        self.assertTrue(os.path.isabs(home), home)
+        self.assertTrue(home.endswith("board-fixture-dir"), home)
+
+    def test_the_config_file_is_never_a_bare_filename(self):
+        """The shape of the bug: a bare `config.json` is a file in the working directory, and
+        the working directory is often a repository."""
+        for value in ("", "   ", "board-fixture-dir"):
+            with self.subTest(value=value):
+                self.home_for(value)
+                self.assertTrue(os.path.isabs(config.CONFIG), config.CONFIG)
+
+    def test_a_null_byte_cannot_get_this_far(self):
+        """Written as a guard first, then deleted from the code. Python refuses to put a null
+        byte into the environment at all, so the branch was unreachable - and unreachable code
+        is decoration that later reads as protection."""
+        with self.assertRaises(ValueError):
+            os.environ["BOARD_HOME"] = "/tmp/board\x00evil"
+
+    # ------------------------------------------------------------------------- the controls
+    def test_an_absolute_path_is_used_exactly_as_given(self):
+        """The whole point of the variable, and what every fixture in this suite relies on."""
+        d = tempfile.mkdtemp()
+        try:
+            self.assertEqual(self.home_for(d), d)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_a_tilde_still_expands(self):
+        self.assertEqual(self.home_for("~/board-fixture-dir"),
+                         os.path.expanduser("~/board-fixture-dir"))
+
+    def test_unset_still_means_the_default(self):
+        self.assertEqual(self.home_for(None), config.DEFAULT_HOME)

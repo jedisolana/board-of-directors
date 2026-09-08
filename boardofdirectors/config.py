@@ -17,7 +17,32 @@ import os
 from . import atomic
 
 DEFAULT_HOME = os.path.expanduser("~/.board-of-directors")
-HOME = os.path.expanduser(os.environ.get("BOARD_HOME", DEFAULT_HOME))
+
+
+def _home() -> str:
+    """The folder this program keeps your API key in.
+
+    BOARD_HOME used to be taken exactly as given, and three ordinary values sent it somewhere
+    nobody intended. An empty string made the config file a bare `config.json` -- a file in
+    whatever directory the command was run from, so `board setup` inside a git repository wrote
+    the key into that repository. A relative value did the same one level down, and a value of
+    two spaces made a folder named with two spaces.
+
+    An empty variable is not a request for the current directory. It is what `export BOARD_HOME=`
+    leaves behind, and what a script hands over when its own variable was never set, and the
+    only safe reading of it is "not set".
+
+    There is no guard here against a null byte in the path: Python refuses to put one into the
+    environment at all, so the branch would be unreachable, and unreachable code is decoration
+    that later reads as protection.
+    """
+    raw = (os.environ.get("BOARD_HOME") or "").strip()
+    if not raw:
+        return DEFAULT_HOME
+    return os.path.abspath(os.path.expanduser(raw))
+
+
+HOME = _home()
 CONFIG = os.path.join(HOME, "config.json")
 ENV_KEY = "OPENROUTER_API_KEY"
 
